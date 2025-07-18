@@ -22,6 +22,10 @@ pub enum Error {
 
     #[error("tokio task join error")]
     TokioJoin(#[from] tokio::task::JoinError),
+
+    // New variant for address parsing errors
+    #[error("invalid address: {0}")]
+    InvalidAddress(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

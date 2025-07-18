@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use dashmap::{mapref::entry::Entry, DashMap};
-use zk_primitives::{hash_merge, Element};
+use element::Element;
+use hash::hash_merge;
 
 pub use self::metrics::CacheMetrics;
 
@@ -9,7 +10,7 @@ mod metrics;
 
 /// A known result of computation [`hash_merge([left, right])`][hash_merge]
 ///
-/// [hash_merge]: zk_primitives::hash_merge
+/// [hash_merge]: hash::hash_merge
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KnownHash {
     /// The left input [`Element`]

@@ -1,0 +1,9 @@
+[package]
+name = "utxo"
+type = "bin"
+authors = [""]
+compiler_version = ">=0.36.0"
+
+[dependencies]
+common = { path = "../common" }
+# nodash = { git = "https://github.com/olehmisar/nodash/", tag = "v0.40.2" }

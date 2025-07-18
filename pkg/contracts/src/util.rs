@@ -1,6 +1,5 @@
+use element::Element;
 use ethereum_types::{H160, H256, U256};
-// use smirk::Element;
-use zk_primitives::Element;
 
 pub fn convert_element_to_h256(element: &Element) -> H256 {
     H256::from_slice(&element.to_be_bytes())

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use element::Element;
 use wire_message::{wire_message, WireMessage};
-use zk_primitives::Element;
 
 #[derive(Debug, Clone)]
 #[wire_message]

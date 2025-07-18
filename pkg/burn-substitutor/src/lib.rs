@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use contracts::RollupContract;
+use contracts::{Address, RollupContract};
+use element::Element;
 use eyre::{Context, ContextCompat};
 use primitives::{
     block_height::BlockHeight,
     pagination::{CursorChoice, CursorChoiceAfter, OpaqueCursor, OpaqueCursorChoice},
 };
 use reqwest::StatusCode;
-use zk_circuits::data::UTXOProof;
-use zk_primitives::Element;
+use zk_primitives::{UtxoKindMessages, UtxoProof};
 
 pub struct BurnSubstitutor {
     rollup_contract: RollupContract,
@@ -56,27 +56,30 @@ impl BurnSubstitutor {
 
         let mut substituted_burns = Vec::new();
         for txn in &txns {
-            let inputs = txn
-                .proof
-                .input_leaves
-                .iter()
-                .filter(|e| !e.is_zero())
-                .collect::<Vec<_>>();
-            let has_only_one_input = inputs.len() == 1;
-            let has_no_outputs = txn.proof.output_leaves.iter().all(|e| e.is_zero());
-            let has_mb = txn.proof.mb_hash != Element::ZERO && txn.proof.mb_value != Element::ZERO;
-            let is_burn = has_only_one_input && has_no_outputs && has_mb;
+            if let UtxoKindMessages::Burn(burn_msgs) = txn.proof.kind_messages() {
+                let hash = burn_msgs.burn_hash;
+                let burn_address =
+                    Address::from_slice(&burn_msgs.burn_address.to_be_bytes()[12..32]);
+                let amount = burn_msgs.value;
+                let note_kind = burn_msgs.note_kind;
 
-            if is_burn {
-                let nullifier = inputs[0];
-
-                if self.rollup_contract.was_burn_substituted(nullifier).await? {
+                if self
+                    .rollup_contract
+                    .was_burn_substituted(&burn_address, &note_kind, &hash, &amount)
+                    .await?
+                {
                     continue;
                 }
 
                 let txn = self
                     .rollup_contract
-                    .substitute_burn(nullifier, &txn.proof.mb_value)
+                    .substitute_burn(
+                        &burn_address,
+                        &note_kind,
+                        &hash,
+                        &amount,
+                        txn.block_height.0,
+                    )
                     .await
                     .context("Failed to substitute burn")?;
 
@@ -86,7 +89,7 @@ impl BurnSubstitutor {
                     .await
                     .context("Failed to wait for burn substitution")?;
 
-                substituted_burns.push(*nullifier);
+                substituted_burns.push(hash);
             }
         }
 
@@ -145,7 +148,8 @@ impl BurnSubstitutor {
 
 #[derive(Debug, serde::Deserialize)]
 struct Transaction {
-    pub proof: UTXOProof<0>,
+    pub proof: UtxoProof,
+    pub block_height: BlockHeight,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

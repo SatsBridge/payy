@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 prover = { workspace = true }
-zk-circuits = { workspace = true }
 
 actix-cors = { workspace = true }
 actix-server = { workspace = true }
@@ -31,3 +30,5 @@ opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 base64 = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }

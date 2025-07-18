@@ -1,7 +1,7 @@
 use super::db;
 
+use element::Element;
 use primitives::block_height::BlockHeight;
-use zk_primitives::Element;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -1,10 +1,9 @@
-use std::{str::FromStr, time::Duration};
-
 use clap::Parser;
 use contracts::{RollupContract, U256};
 use eyre::ContextCompat;
 use rpc::tracing::{LogFormat, LogLevel};
 use serde::{Deserialize, Serialize};
+use std::{str::FromStr, time::Duration};
 
 #[derive(Parser, Debug, Serialize, Deserialize, Clone)]
 #[clap(name = "Polybase Burn Subsitutor")]
@@ -23,7 +22,7 @@ pub struct Config {
     #[arg(
         long,
         env = "ROLLUP_CONTRACT_ADDRESS",
-        default_value = "0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6"
+        default_value = "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9"
     )]
     rollup_contract_address: String,
 
@@ -66,6 +65,7 @@ async fn main() -> Result<(), eyre::Error> {
             "zk_primitives",
             "contracts",
             "block_store",
+            "element",
         ],
         &config.log_level,
         &config.log_format,

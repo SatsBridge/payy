@@ -387,10 +387,10 @@ impl Doomslug {
         }
     }
 
-    #[cfg(feature = "test_features")]
-    pub fn adv_disable(&mut self) {
-        self.threshold_mode = DoomslugThresholdMode::NoApprovals
-    }
+    // #[cfg(feature = "test_features")]
+    // pub fn adv_disable(&mut self) {
+    //     self.threshold_mode = DoomslugThresholdMode::NoApprovals
+    // }
 
     /// Returns the `(hash, height)` of the current tip. Currently is only used by tests.
     pub fn get_tip(&self) -> (CryptoHash, BlockHeight) {
@@ -692,8 +692,8 @@ impl Doomslug {
     ///    enough chunks, or
     ///  - The block has 1/2 of approvals, and T(h' / 6) has passed since the block has had 1/2 of
     ///    approvals for the first time, where h' is time since the last ds-final block.
-    /// Only the height is passed into the function, we use the tip known to `Doomslug` as the
-    /// parent hash.
+    ///    Only the height is passed into the function, we use the tip known to `Doomslug` as the
+    ///    parent hash.
     ///
     /// # Arguments:
     /// * `now`               - current timestamp

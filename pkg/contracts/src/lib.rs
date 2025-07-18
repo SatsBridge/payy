@@ -1,5 +1,3 @@
-// This was stabilized in Rust 1.70
-#![feature(is_some_and)]
 #![deny(clippy::disallowed_methods)]
 
 mod across;

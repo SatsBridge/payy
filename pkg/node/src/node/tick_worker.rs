@@ -21,6 +21,7 @@ impl TickWorkerTick for NodeSharedArc {
             // This block may mean we can commit some proposals
             loop {
                 let next = node.block_cache.lock().get_next_commit_block();
+
                 let Some(block) = next else {
                     break;
                 };

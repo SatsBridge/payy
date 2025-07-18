@@ -1,7 +1,7 @@
 use std::{path::Path, sync::OnceLock};
 
 use block_store::BlockStore;
-use smirk::Element;
+use element::Element;
 use tracing::info;
 
 use crate::{
@@ -40,8 +40,7 @@ impl Node {
             drop(persistent_tree);
 
             Self::reset_db_and_smirk(None, Some(&config.smirk_path))?;
-            let persistent_tree =
-                smirk::storage::Persistent::load(smirk_path)?;
+            let persistent_tree = smirk::storage::Persistent::load(smirk_path)?;
 
             debug_assert_eq!(persistent_tree.tree().root_hash(), empty_tree_hash());
 
@@ -83,7 +82,6 @@ impl Node {
                 &mut persistent_tree,
                 &block.content.state,
                 max_height,
-                config.bad_blocks.contains(&max_height),
             )?;
             assert!(persistent_tree.tree().root_hash() == block.content.state.root_hash);
 

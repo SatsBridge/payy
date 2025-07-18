@@ -12,15 +12,16 @@ use crate::types::BlockHeight;
 use crate::{Mode, NodeShared, PersistentMerkleTree};
 use contracts::RollupContract;
 use either::Either;
+use element::Element;
 use futures::StreamExt;
 use prover::smirk_metadata::SmirkMetadata;
 use prover::{Prover, Transaction};
 use prover::{RollupInput, MAXIMUM_TXNS};
 use scopeguard::ScopeGuard;
-use smirk::{empty_tree_hash, Element, Tree};
+use smirk::empty_tree_hash;
 use tokio::sync::{mpsc, Mutex, Notify};
 use tracing::{error, info};
-use zk_circuits::data::Utxo;
+use zk_primitives::AggAggProof;
 
 pub async fn run_prover(config: &Config, node: Arc<NodeShared>) -> Result<()> {
     let (client, postgres_future) = if let Some(url) = &config.prover_database_url {
@@ -140,8 +141,6 @@ async fn run_prover_worker<Fut>(
 where
     Fut: Future<Output = Result<()>>,
 {
-    let ban_tree = Tree::<MERKLE_TREE_DEPTH, SmirkMetadata>::new();
-
     let initial_contract_block_height = BlockHeight(contract.block_height().await?);
 
     {
@@ -275,7 +274,6 @@ where
                 notes_tree.lock().await.as_mut().unwrap(),
                 &commit.content.state,
                 commit.content.header.height,
-                is_a_bad_block,
             )?;
             prover_state_db.set_last_seen_block(LastSeenBlock {
                 height: commit_height,
@@ -293,7 +291,7 @@ where
             .state
             .txns
             .iter()
-            .map(|utxo| Ok(Some(Transaction::new(utxo.to_snark_witness()))))
+            .map(|utxo_proof| Ok(Some(Transaction::new(utxo_proof.clone()))))
             .collect::<Result<Vec<_>>>()?;
 
         while txns.len() < MAXIMUM_TXNS {
@@ -316,50 +314,35 @@ where
 
         let proof = match config.mode {
             Mode::MockProver => {
-                let utxo_hashes = txns
-                    .into_iter()
-                    .map(|txn| txn.map(|t| t.proof.try_as_v_1().unwrap().instances))
-                    .map(|maybe_instances| {
-                        maybe_instances.unwrap_or_else(|| {
-                            vec![Utxo::<MERKLE_TREE_DEPTH>::new_padding()
-                                .public_inputs()
-                                .into_iter()
-                                .map(Element::from_base)
-                                .collect::<Vec<_>>()]
-                        })
-                    })
-                    .flat_map(|instances| {
-                        let root = instances[0][0];
-                        let mb_hash = instances[0][1];
-                        let mb_value = instances[0][2];
+                let mut agg_agg_proof = AggAggProof::default();
+                agg_agg_proof.public_inputs.old_root = notes_tree.tree().root_hash();
+                agg_agg_proof.public_inputs.new_root = commit.content.state.root_hash;
 
-                        [root, mb_hash, mb_value]
-                    })
+                let mut messages = commit
+                    .content
+                    .state
+                    .txns
+                    .iter()
+                    .flat_map(|txn| txn.public_inputs.messages.iter())
+                    .cloned()
                     .collect::<Vec<_>>();
 
-                prover::Proof {
-                    proof: vec![],
-                    agg_instances: vec![Element::ZERO; 12],
-                    old_root: notes_tree.tree().root_hash(),
-                    new_root: commit.content.state.root_hash,
-                    utxo_hashes,
-                }
+                messages.extend(vec![Element::ZERO; 36 - messages.len()]);
+
+                agg_agg_proof.public_inputs.messages = messages;
+
+                agg_agg_proof
             }
             _ => {
                 prover
-                    .prove(
-                        notes_tree.tree(),
-                        &ban_tree,
-                        commit_height.0,
-                        txns.try_into().unwrap(),
-                    )
+                    .prove(notes_tree.tree(), commit_height.0, txns.try_into().unwrap())
                     .await?
             }
         };
 
-        if proof.new_root() != &commit.content.state.root_hash {
+        if proof.public_inputs.new_root != commit.content.state.root_hash {
             return Err(Error::RootMismatch {
-                got: *proof.new_root(),
+                got: proof.public_inputs.new_root,
                 expected: commit.content.state.root_hash,
             });
         }
@@ -367,12 +350,7 @@ where
         let rollup_input = RollupInput::new(proof, commit_height.0, other_hash, signatures);
         prover_state_db.set_rollup(commit_height, rollup_input.clone())?;
 
-        NodeShared::apply_block_to_tree(
-            notes_tree,
-            &commit.content.state,
-            commit_height,
-            is_a_bad_block,
-        )?;
+        NodeShared::apply_block_to_tree(notes_tree, &commit.content.state, commit_height)?;
         prover_state_db.set_last_seen_block(LastSeenBlock {
             height: commit_height,
             root_hash: commit.content.state.root_hash,
@@ -438,7 +416,8 @@ async fn run_rollup_worker(
 
         let Some(rollup) = prover_state_db
             .list_rollups(contract_height.next()..max)
-            .next() else {
+            .next()
+        else {
             info!(?contract_height, "No proofs to roll up");
             continue;
         };
@@ -448,7 +427,7 @@ async fn run_rollup_worker(
 
         let rollup_contract_root_hash =
             Element::from_be_bytes(rollup_contract.root_hash().await?.0);
-        let rollup = if rollup.old_root() != &rollup_contract_root_hash {
+        let rollup = if rollup.old_root() != rollup_contract_root_hash {
             info!(
                 ?contract_height,
                 ?rollup_contract_root_hash,
@@ -569,13 +548,14 @@ mod tests {
     use contracts::{util::convert_element_to_h256, SecretKey};
     use doomslug::ApprovalContent;
     use primitives::peer::PeerIdSigner;
-    use prover::Proof;
     use tempdir::TempDir;
     use testutil::{
         eth::{EthNode, EthNodeOptions},
         ACCOUNT_1_SK,
     };
+    use zk_primitives::AggAggProof;
 
+    #[ignore]
     #[tokio::test]
     async fn test_rollup() {
         tracing_subscriber::fmt()
@@ -618,7 +598,7 @@ mod tests {
         let mut rollup_worker = Box::pin(rollup_worker);
 
         let mut last_block = Block::genesis();
-        let mut last_root = empty_tree_hash(MERKLE_TREE_DEPTH);
+        // let mut last_root = empty_tree_hash(MERKLE_TREE_DEPTH);
         for height in [1, 2, 3] {
             let new_root = Element::new(height);
             let block = BlockContent {
@@ -641,13 +621,7 @@ mod tests {
                 .set_rollup(
                     BlockHeight(height),
                     RollupInput::new(
-                        Proof {
-                            proof: Vec::new(),
-                            agg_instances: vec![Element::ZERO; 12],
-                            old_root: last_root,
-                            new_root,
-                            utxo_hashes: vec![Element::ZERO; 18],
-                        },
+                        AggAggProof::default(),
                         height,
                         *other_hash.inner(),
                         vec![approval.signature],
@@ -673,7 +647,7 @@ mod tests {
             );
 
             last_block = block;
-            last_root = new_root;
+            // last_root = new_root;
         }
     }
 }

@@ -2,9 +2,9 @@ use core::fmt::Debug;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use element::Element;
 use rocksdb::{IteratorMode, DB};
 use wire_message::WireMessage;
-use zk_primitives::Element;
 
 use crate::{
     hash_cache::{KnownHash, SimpleHashCache},

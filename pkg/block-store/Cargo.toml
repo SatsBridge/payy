@@ -8,6 +8,9 @@ edition = "2021"
 [dependencies]
 wire-message = { workspace = true, features = ["test-api"] }
 primitives = { workspace = true }
+element = { workspace = true }
+borsh = { workspace = true }
+strum = { workspace = true }
 
 rocksdb = { workspace = true }
 thiserror = { workspace = true }

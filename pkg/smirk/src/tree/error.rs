@@ -1,9 +1,10 @@
-use zk_primitives::Element;
+use element::Element;
 
 /// An error indicating at least one collision occurred when trying to insert a value into the tree
 ///
 /// ```rust
 /// # use smirk::*;
+/// # use element::Element;
 /// let mut tree: Tree<64, _>  = smirk! { 1 };
 ///
 /// let colliding_element = Element::ONE + (Element::ONE << 100);
@@ -92,6 +93,7 @@ impl Collision {
     ///
     /// ```rust
     /// use smirk::*;
+    /// use element::Element;
     /// let mut tree: Tree<64, _> = smirk! { 1 };
     /// let collides = Element::ONE + (Element::ONE << 100);
     /// let error = tree.insert(collides, ()).unwrap_err();
@@ -109,6 +111,7 @@ impl Collision {
     ///
     /// ```rust
     /// use smirk::*;
+    /// use element::Element;
     /// let mut tree: Tree<64, _> = smirk! { 1 };
     /// let collides = Element::ONE + (Element::ONE << 100);
     /// let error = tree.insert(collides, ()).unwrap_err();

@@ -6,16 +6,21 @@ edition = "2021"
 [dependencies]
 block-store = { workspace = true }
 contracts = { workspace = true }
+constants = { workspace = true }
 doomslug = { workspace = true }
+element = { workspace = true }
+node-interface = { workspace = true }
 p2p2 = { workspace = true }
 primitives = { workspace = true }
 prover = { workspace = true }
 rpc = { workspace = true }
 smirk = { workspace = true }
+solid = { workspace = true }
 zk-primitives = { workspace = true }
-zk-circuits = { workspace = true }
 testutil = { workspace = true }
 burn-substitutor = { workspace = true }
+barretenberg = { workspace = true }
+hash = { workspace = true }
 
 actix-cors = { workspace = true }
 actix-server = { workspace = true }

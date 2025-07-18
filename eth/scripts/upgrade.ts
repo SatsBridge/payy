@@ -141,6 +141,20 @@ async function main(): Promise<void> {
     await maybeUpgradeRollup(rollupV6.address, initializeV6Data)
     version = 6
   }
+
+  if (version === 6) {
+    const rollupV7 = await hre.viem.deployContract('RollupV7', [])
+    console.log(`ROLLUP_V7_IMPL_ADDR=${rollupV7.address}`)
+
+    const initializeV7Data = encodeFunctionData({
+      abi: [rollupV7.abi.find(x => x.type === 'function' && x.name === 'initializeV7') as any],
+      functionName: 'initializeV7',
+      args: []
+    })
+    console.log(`ROLLUP_V7_INITIALIZE_V7_CALLDATA=${initializeV7Data}`)
+    await maybeUpgradeRollup(rollupV7.address, initializeV7Data)
+    version = 7
+  }
 }
 
 main()

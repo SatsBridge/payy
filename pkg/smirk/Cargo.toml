@@ -6,19 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zk-primitives = { workspace = true }
+element = { workspace = true }
+hash = { workspace = true }
 
 bitvec = { workspace = true }
 ethnum = { workspace = true }
 ff = { workspace = true }
-halo2_gadgets = { workspace = true }
-halo2_proofs = { workspace = true }
-halo2curves = { workspace = true }
-poseidon-circuit = { workspace = true }
-proptest = { workspace = true, optional = true }
+proptest = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
-rocksdb = { workspace = true, optional = true }
+rocksdb = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 thiserror = { workspace = true }
 borsh = { workspace = true }
@@ -30,19 +27,17 @@ tracing = { workspace = true }
 
 
 [dev-dependencies]
-proptest = { workspace = true }
 serde_json = { workspace = true }
 test-strategy = { workspace = true }
 tempdir = { workspace = true }
 benchy = { workspace = true }
-zk-primitives = { workspace = true, features = ["test-api"] }
+hash = { workspace = true, features = ["test-api"] }
 expect-test = { workspace = true }
 
 [features]
-default = ["serde", "storage"]
+default = ["serde"]
 
-storage = ["dep:rocksdb"]
-serde = ["dep:serde", "zk-primitives/serde", "zk-primitives/proptest"]
+serde = ["dep:serde", "element/serde"]
 slow-storage-tests = []
 
 [[bench]]
