@@ -1,17 +1,16 @@
 use common::{
     check_commitment, check_input_note_ownership, get_address, get_note_commitment, InputNote, Note,
 };
-use std::hash::poseidon2;
+use poseidon::poseidon2;
 
 mod test;
 
 fn main(
     input_notes: [InputNote; 2],
     output_notes: [Note; 2],
-    // TODO: rename to pmessage
     pmessage4: Field,
     commitments: pub [Field; 4],
-    messages: pub [Field; 6],
+    messages: pub [Field; 5],
 ) {
     // Check the commitments
     check_commitment(input_notes[0].note, commitments[0]);
@@ -23,8 +22,6 @@ fn main(
     output_notes[0].value.assert_max_bit_size::<240>();
     output_notes[1].value.assert_max_bit_size::<240>();
 
-    // TODO: we need to check totals BY KIND
-
     // We do not need to check the input notes values, as they must already have been added
     // to the tree, and the only way for that to occur if them to be added as an output note first
     // (which the check below would catch). Also, an overflow attack on the inputs would be deterimental
@@ -35,23 +32,26 @@ fn main(
     // then the maximum of the addition can be 2^241 which means the output value can never overflow
     let output_value = output_notes[0].value + output_notes[1].value;
 
-    // If there are multiple kinds:
-    //  - there can be no padding notes
-    //  - input[i].kind == output[i].kind (i.e. no re-ordering of kinds allowed)
-    let is_input_multiple_kinds = is_multiple_kinds(input_notes[0].note, input_notes[1].note);
+    // Check for multiple kinds, not currently supported in this proof
+    let (is_multiple_kinds, _note_kind) = is_multiple_kinds([
+        input_notes[0].note,
+        input_notes[1].note,
+        output_notes[0],
+        output_notes[1],
+    ]);
+    assert(!is_multiple_kinds, "Inconsistent kinds are not allowed");
 
     // Kind of UTXO txn (in future we may have subtypes for kind, which define different encodings
     // but for now its easier to define this way, so bytes[32] will always be main kind)
     let kind = messages[0];
 
-    // TODO: add this check back in (in agg_utxo proof)
-    // u8 (up to 5 bits, <=32)
-    // let kind_bytes = messages[0].to_be_bytes();
-    // let kind = kind_bytes[0];
-
     // Messages (only for mint/burns, otherwise all zeros)
     let msg_note_kind = messages[1];
     let msg_value = messages[2];
+
+    // Assert message value size is max 240 bits to prevent overflow attack
+    msg_value.assert_max_bit_size::<240>();
+
     // We only constrain the message hash for mints. For burns, any hash can be used
     // as its only used by the substitutor to early release funds. Early release is
     // secured by the validator, so as long as it records the burn hash it should be valid.
@@ -71,21 +71,14 @@ fn main(
 
     if (kind == 1) {
         //SEND
-        check_totals_match(input_value, output_value);
-
-        // Check the input/output values match
-        kinds_match(
-            is_input_multiple_kinds,
-            input_notes[0].note,
-            input_notes[1].note,
-            output_notes[0],
-            output_notes[1],
-        );
+        assert(input_value == output_value, "Input and output totals do not match");
     } else if (kind == 2) {
         // MINT
-        // Check the second output note is padding or same kind
-        check_note_has_kind_or_padding(output_notes[1], output_notes[0].kind);
-        // Assert mint value
+        // Assert mint utxo is balanced:
+        //   - `output_value` is checked above
+        //   - `input_value` is checked as it must have previously been an output value
+        //   - `msg_value` is checked above (but also using that to overflow would be detrimental to the
+        //      attacker)
         assert(output_value == input_value + msg_value, "Mint output must match value message");
         // Assert mint hash
         assert(mint_hash == msg_hash, "Mint hash must match message");
@@ -97,14 +90,14 @@ fn main(
         assert(pmessage4 == burn_addr, "messages[4] must match private input");
         // Assert burn hash
         assert(burn_hash == msg_hash, "Burn hash must match message");
-        // Check the second input note is padding or same kind
-        assert(!is_input_multiple_kinds, "Inconsistent input kind is not allowed for burn");
-        // Assert burn value
+        // Assert burn utxo is balanced:
+        //   - `output_value` is checked above
+        //   - `input_value` is checked as it must have previously been an output value
+        //   - `msg_value` is checked above
         assert(input_value == output_value + msg_value, "Burn output must match value message");
         // Assert burn kind
         assert(input_notes[0].note.kind == msg_note_kind, "Burn note kind must match message")
     } else {
-        // TODO: should we create a contract kind?
         assert(false, "Invalid kind");
     }
 
@@ -113,33 +106,32 @@ fn main(
     check_input_note_ownership(input_notes[1]);
 }
 
-fn is_multiple_kinds(note1: Note, note2: Note) -> bool {
-    if note2.kind == 0 {
-        false
-    } else {
-        note1.kind != note2.kind
+fn is_multiple_kinds(notes: [Note; 4]) -> (bool, Field) {
+    let mut first_non_zero_kind = 0;
+    let mut is_multiple_kinds = false;
+
+    for i in 0..4 {
+        // Skip if we have already detected multiple kinds - basically an early return
+        // (which is not supported directly in Noir)
+        if !is_multiple_kinds {
+            // Check if this is a non-padding note
+            if notes[i].kind != 0 {
+                if first_non_zero_kind == 0 {
+                    // No previous kind exists, so add this one
+                    first_non_zero_kind = notes[i].kind;
+                } else if first_non_zero_kind != notes[i].kind {
+                    // We've detected a mismatched kind
+                    is_multiple_kinds = true;
+                }
+            }
+        }
     }
+
+    (is_multiple_kinds, first_non_zero_kind)
 }
 
-fn check_totals_match(input_total: Field, output_total: Field) {
-    assert(input_total == output_total, "Input and output totals do not match");
-}
-
-/// Check the totals for each kind of note match on the inputs and outputs
-fn kinds_match(is_multiple_kinds: bool, input1: Note, input2: Note, output1: Note, output2: Note) {
-    if is_multiple_kinds {
-        assert(input1.kind == output1.kind, "Inconsistent kind in input/output notes at 0 index");
-        assert(input2.kind == output2.kind, "Inconsistent kind in input/output notes at 1 index");
-    } else {
-        assert(output1.kind == input1.kind, "Inconsistent kind in note");
-        check_note_has_kind_or_padding(output2, input1.kind)
-    }
-}
-
-fn check_note_has_kind_or_padding(note: Note, kind: Field) {
-    if note.kind != 0 {
-        assert(note.kind == kind, "Inconsistent kind in note");
-    }
+fn bridged_note_kind() -> Field {
+    3533694129556768672311144317398675444585744224105014452550528428861358080
 }
 
 #[test]
@@ -148,14 +140,14 @@ fn test_send_two_inputs_two_outputs() {
     let address = get_address(pk);
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 10, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: 5, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 10, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: 1, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: 14, address, psi: 4 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 1, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 14, address, psi: 4 };
 
     // Commitments
     main(
@@ -168,7 +160,7 @@ fn test_send_two_inputs_two_outputs() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -178,14 +170,14 @@ fn test_send_one_input_two_outputs() {
     let address = get_address(pk);
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 10, address, psi: 1 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 10, address, psi: 1 };
     let note_2 = Note { kind: 0, value: 0, address, psi: 0 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: 0 };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: 1, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: 9, address, psi: 4 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 1, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 9, address, psi: 4 };
 
     // Commitments
     main(
@@ -198,7 +190,7 @@ fn test_send_one_input_two_outputs() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -208,13 +200,13 @@ fn test_send_two_inputs_one_output() {
     let address = get_address(pk);
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 10, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: 5, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 10, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: 15, address, psi: 3 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 15, address, psi: 3 };
     let note_4 = Note { kind: 0, value: 0, address, psi: 0 };
 
     // Commitments
@@ -228,23 +220,23 @@ fn test_send_two_inputs_one_output() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
-#[test]
+#[test(should_fail)]
 fn test_send_diff_kinds() {
     let pk: Field = 101;
     let address = get_address(pk);
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 15, address, psi: 1 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 15, address, psi: 1 };
     let note_2 = Note { kind: 2, value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: 15, address, psi: 3 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 15, address, psi: 3 };
     let note_4 = Note { kind: 2, value: 5, address, psi: 4 };
 
     // Commitments
@@ -258,7 +250,7 @@ fn test_send_diff_kinds() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -268,14 +260,14 @@ fn test_mint() {
     let address = get_address(pk);
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 15, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: 5, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 15, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: 0, address: 0, psi: 0 };
-    let note_4 = Note { kind: 1, value: 30, address, psi: 3 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 0, address: 0, psi: 0 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 30, address, psi: 3 };
 
     let commitments = [
         get_note_commitment(note_1),
@@ -292,7 +284,7 @@ fn test_mint() {
         [note_3, note_4],
         0,
         commitments,
-        [2, 1, 10, mint_hash, 0, 0],
+        [2, bridged_note_kind(), 10, mint_hash, 0],
     )
 }
 
@@ -302,14 +294,14 @@ fn test_burn() {
     let address = get_address(pk);
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 15, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: 5, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 15, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
     let note_3 = Note { kind: 0, value: 0, address: 0, psi: 0 };
-    let note_4 = Note { kind: 1, value: 10, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 10, address, psi: 3 };
 
     // Commitments
     main(
@@ -322,7 +314,7 @@ fn test_burn() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [3, 1, 10,  get_note_commitment(note_1), 0, 0],
+        [3, bridged_note_kind(), 10, get_note_commitment(note_1), 0],
     )
 }
 
@@ -332,13 +324,13 @@ fn test_send_zero_value() {
     let address = get_address(pk);
 
     // Inputs - both zero value notes
-    let note_1 = Note { kind: 1, value: 0, address, psi: 1 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 0, address, psi: 1 };
     let note_2 = Note { kind: 0, value: 0, address, psi: 0 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: 0 };
 
     // Outputs - both zero value notes
-    let note_3 = Note { kind: 1, value: 0, address, psi: 3 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 0, address, psi: 3 };
     let note_4 = Note { kind: 0, value: 0, address, psi: 0 };
 
     main(
@@ -351,7 +343,7 @@ fn test_send_zero_value() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -361,14 +353,14 @@ fn test_mint_with_padding_input() {
     let address = get_address(pk);
 
     // Inputs - one real note, one padding
-    let note_1 = Note { kind: 1, value: 5, address, psi: 1 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 5, address, psi: 1 };
     let note_2 = Note { kind: 0, value: 0, address, psi: 0 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: 0 };
 
     // Outputs - note_3 is the first output (minted note), note_4 is padding or same kind
-    let note_3 = Note { kind: 1, value: 15, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: 0, address: 0, psi: 0 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 15, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 0, address: 0, psi: 0 };
 
     let commitments = [
         get_note_commitment(note_1),
@@ -384,7 +376,7 @@ fn test_mint_with_padding_input() {
         [note_3, note_4],
         0,
         commitments,
-        [2, 1, 10, mint_hash, 0, 0],
+        [2, bridged_note_kind(), 10, mint_hash, 0],
     )
 }
 
@@ -394,14 +386,14 @@ fn test_burn_single_input() {
     let address = get_address(pk);
 
     // Inputs - one real note, one padding
-    let note_1 = Note { kind: 1, value: 15, address, psi: 1 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 15, address, psi: 1 };
     let note_2 = Note { kind: 0, value: 0, address, psi: 0 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: 0 };
 
     // Outputs - burn 10 value, keep 5
     let note_3 = Note { kind: 0, value: 0, address: 0, psi: 0 };
-    let note_4 = Note { kind: 1, value: 5, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 5, address, psi: 3 };
 
     main(
         [input_note_1, input_note_2],
@@ -413,17 +405,16 @@ fn test_burn_single_input() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [3, 1, 10, get_note_commitment(note_1), 0, 0],
+        [3, bridged_note_kind(), 10, get_note_commitment(note_1), 0],
     )
 }
-
-#[test]
+#[test(should_fail)]
 fn test_mint_different_kinds() {
     let pk: Field = 101;
     let address = get_address(pk);
 
     // Inputs - mix of different kinds
-    let note_1 = Note { kind: 1, value: 5, address, psi: 1 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 5, address, psi: 1 };
     let note_2 = Note { kind: 2, value: 3, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
@@ -446,7 +437,7 @@ fn test_mint_different_kinds() {
         [note_3, note_4],
         0,
         commitments,
-        [2, 3, 10, mint_hash, 0, 0],
+        [2, 3, 10, mint_hash, 0],
     )
 }
 
@@ -459,14 +450,14 @@ fn test_send_large_values() {
     let large_value = 1000000000;
 
     // Inputs
-    let note_1 = Note { kind: 1, value: large_value, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: large_value, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: large_value, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: large_value, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: large_value + 500000, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: large_value - 500000, address, psi: 4 };
+    let note_3 = Note { kind: bridged_note_kind(), value: large_value + 500000, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: large_value - 500000, address, psi: 4 };
 
     main(
         [input_note_1, input_note_2],
@@ -478,7 +469,7 @@ fn test_send_large_values() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -488,14 +479,14 @@ fn test_mint_same_kind() {
     let address = get_address(pk);
 
     // Inputs - same kind
-    let note_1 = Note { kind: 2, value: 5, address, psi: 1 };
-    let note_2 = Note { kind: 2, value: 10, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 5, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 10, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs - mint more of same kind, first note is the minted note
-    let note_3 = Note { kind: 2, value: 25, address, psi: 3 };
-    let note_4 = Note { kind: 2, value: 0, address: 0, psi: 0 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 25, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 0, address: 0, psi: 0 };
 
     let commitments = [
         get_note_commitment(note_1),
@@ -511,7 +502,7 @@ fn test_mint_same_kind() {
         [note_3, note_4],
         0,
         commitments,
-        [2, 2, 10, mint_hash, 0, 0],
+        [2, bridged_note_kind(), 10, mint_hash, 0],
     )
 }
 
@@ -525,14 +516,14 @@ fn test_overflow_input_first_note() {
     let overflow_value = 1766847064778384329583297500742918515827483896875618958121606201292619777;
 
     // Inputs - first note has overflow value
-    let note_1 = Note { kind: 1, value: overflow_value, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: 5, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: overflow_value, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: 10, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: 5, address, psi: 4 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 10, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 5, address, psi: 4 };
 
     // This should fail due to overflow check on first input
     main(
@@ -545,7 +536,7 @@ fn test_overflow_input_first_note() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -558,14 +549,14 @@ fn test_overflow_input_second_note() {
     let overflow_value = 1766847064778384329583297500742918515827483896875618958121606201292619777;
 
     // Inputs - second note has overflow value
-    let note_1 = Note { kind: 1, value: 5, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: overflow_value, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 5, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: overflow_value, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs
-    let note_3 = Note { kind: 1, value: 10, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: 5, address, psi: 4 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 10, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 5, address, psi: 4 };
 
     // This should fail due to overflow check on second input
     main(
@@ -578,7 +569,7 @@ fn test_overflow_input_second_note() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -591,14 +582,14 @@ fn test_overflow_output_first_note() {
     let overflow_value = 1766847064778384329583297500742918515827483896875618958121606201292619777;
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 10, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: 5, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 10, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs - first output has overflow value
-    let note_3 = Note { kind: 1, value: overflow_value, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: 5, address, psi: 4 };
+    let note_3 = Note { kind: bridged_note_kind(), value: overflow_value, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: 5, address, psi: 4 };
 
     // This should fail due to overflow check on first output
     main(
@@ -611,7 +602,7 @@ fn test_overflow_output_first_note() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -624,14 +615,14 @@ fn test_overflow_output_second_note() {
     let overflow_value = 1766847064778384329583297500742918515827483896875618958121606201292619777;
 
     // Inputs
-    let note_1 = Note { kind: 1, value: 10, address, psi: 1 };
-    let note_2 = Note { kind: 1, value: 5, address, psi: 2 };
+    let note_1 = Note { kind: bridged_note_kind(), value: 10, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: pk };
 
     // Outputs - second output has overflow value
-    let note_3 = Note { kind: 1, value: 5, address, psi: 3 };
-    let note_4 = Note { kind: 1, value: overflow_value, address, psi: 4 };
+    let note_3 = Note { kind: bridged_note_kind(), value: 5, address, psi: 3 };
+    let note_4 = Note { kind: bridged_note_kind(), value: overflow_value, address, psi: 4 };
 
     // This should fail due to overflow check on second output
     main(
@@ -644,7 +635,7 @@ fn test_overflow_output_second_note() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
     )
 }
 
@@ -657,13 +648,13 @@ fn test_max_allowed_value() {
     let max_value = 1766847064778384329583297500742918515827483896875618958121606201292619775;
 
     // Inputs - both notes have max allowed value
-    let note_1 = Note { kind: 1, value: max_value, address, psi: 1 };
+    let note_1 = Note { kind: bridged_note_kind(), value: max_value, address, psi: 1 };
     let note_2 = Note { kind: 0, value: 0, address, psi: 0 };
     let input_note_1 = InputNote { note: note_1, secret_key: pk };
     let input_note_2 = InputNote { note: note_2, secret_key: 0 };
 
     // Outputs - transfer to single output
-    let note_3 = Note { kind: 1, value: max_value, address, psi: 3 };
+    let note_3 = Note { kind: bridged_note_kind(), value: max_value, address, psi: 3 };
     let note_4 = Note { kind: 0, value: 0, address, psi: 0 };
 
     // This should succeed as the value is exactly at the limit
@@ -677,6 +668,43 @@ fn test_max_allowed_value() {
             get_note_commitment(note_3),
             get_note_commitment(note_4),
         ],
-        [1, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
+    )
+}
+
+#[test(should_fail)]
+fn test_msg_value_overflow() {
+    let pk: Field = 101;
+    let address = get_address(pk);
+
+    // Create a value that exceeds 240 bits
+    let overflow_value = 1766847064778384329583297500742918515827483896875618958121606201292619777;
+
+    // Inputs
+    let note_1 = Note { kind: bridged_note_kind(), value: 10, address, psi: 1 };
+    let note_2 = Note { kind: bridged_note_kind(), value: 5, address, psi: 2 };
+    let input_note_1 = InputNote { note: note_1, secret_key: pk };
+    let input_note_2 = InputNote { note: note_2, secret_key: pk };
+
+    // Outputs - mint with overflow msg_value
+    let note_3 = Note { kind: bridged_note_kind(), value: 15, address, psi: 3 };
+    let note_4 = Note { kind: 0, value: 0, address: 0, psi: 0 };
+
+    let commitments = [
+        get_note_commitment(note_1),
+        get_note_commitment(note_2),
+        get_note_commitment(note_3),
+        get_note_commitment(note_4),
+    ];
+
+    let mint_hash = poseidon2::Poseidon2::hash([note_3.psi, note_4.psi], 2);
+
+    // This should fail due to msg_value overflow check
+    main(
+        [input_note_1, input_note_2],
+        [note_3, note_4],
+        0,
+        commitments,
+        [2, bridged_note_kind(), overflow_value, mint_hash, 0],
     )
 }

@@ -24,13 +24,9 @@ cp -r $REPO_ROOT/noir/target/* $REPO_ROOT/fixtures/programs/
 # Create the keys directory if it doesn't exist
 mkdir -p $REPO_ROOT/fixtures/keys
 
-# Get all program names from the workspace
-# Get program names from the json files in the programs directory
-PROGRAMS=()
-for file in $REPO_ROOT/fixtures/programs/*.json; do
-  NAME=$(basename "$file" .json)
-  PROGRAMS+=("$NAME")
-done
+# Get all program names from the workspace - the ordering of these is important,
+# as the hash from utxo is used in agg_utxo, and agg_utxo used in agg_agg
+PROGRAMS=("utxo" "agg_utxo" "agg_agg" "signature" "points")
 
 # Define which programs should use the recursive flag
 RECURSIVE_PROGRAMS=("agg_utxo" "utxo")
@@ -53,6 +49,10 @@ for NAME in "${PROGRAMS[@]}"; do
     oracle_hash_args=("--oracle_hash" "keccak")
   fi
 
+  echo "================"
+  echo "$(echo "$NAME" | tr '[:lower:]' '[:upper:]')"
+  echo "================"
+
   if is_recursive "$NAME"; then
     echo "Generating verification key for $NAME with recursive flag"
     $BACKEND write_vk ${oracle_hash_args[@]} --scheme ultra_honk --honk_recursion 1 --init_kzg_accumulator -b $REPO_ROOT/fixtures/programs/${NAME}.json -o $REPO_ROOT/fixtures/keys/ --output_format bytes_and_fields \
@@ -73,26 +73,27 @@ for NAME in "${PROGRAMS[@]}"; do
   if [ "$NAME" == "utxo" ]; then
     UTXO_VK_HASH=$(echo "$VK_HASH_OUTPUT" | grep "u256:" | cut -d' ' -f2)
     echo "Updating agg_utxo/src/main.nr with UTXO verification key hash: $UTXO_VK_HASH"
-    sed -i.bak "s/assert(verification_key_hash == [0-9]*, \"only utxo proof allowed\");/assert(verification_key_hash == $UTXO_VK_HASH, \"only utxo proof allowed\");/" $REPO_ROOT/noir/agg_utxo/src/main.nr
+    sed -i.bak "s/global UTXO_VERIFICATION_KEY_HASH: Field = [0-9]*;/global UTXO_VERIFICATION_KEY_HASH: Field = $UTXO_VK_HASH;/" $REPO_ROOT/noir/agg_utxo/src/main.nr
     rm $REPO_ROOT/noir/agg_utxo/src/main.nr.bak
   fi
 
-  # Update eth/scripts/deploy.ts with the agg_utxo verification key hash
+  # Update agg_agg/src/main.nr with the agg_utxo verification key hash
   if [ "$NAME" == "agg_utxo" ]; then
-    AGG_UTXO_VK_HASH_HEX=$(echo "$VK_HASH_OUTPUT" | grep "hex:" | cut -d' ' -f2)
-    echo "Updating eth/scripts/deploy.ts with agg_utxo verification key hash: $AGG_UTXO_VK_HASH_HEX"
-    # Use perl for multiline replacement to handle the split constant format
-    perl -i.bak -0pe "s/const AGG_UTXO_VERIFICATION_KEY_HASH =\s*\"0x[0-9a-fA-F]*\";/const AGG_UTXO_VERIFICATION_KEY_HASH = \"$AGG_UTXO_VK_HASH_HEX\";/g" $REPO_ROOT/eth/scripts/deploy.ts
-    rm $REPO_ROOT/eth/scripts/deploy.ts.bak
+    AGG_UTXO_VK_HASH=$(echo "$VK_HASH_OUTPUT" | grep "u256:" | cut -d' ' -f2)
+    echo "Updating agg_agg/src/main.nr with agg_utxo verification key hash: $AGG_UTXO_VK_HASH"
+    sed -i.bak "s/global AGG_UTXO_VERIFICATION_KEY_HASH: Field = [0-9]*;/global AGG_UTXO_VERIFICATION_KEY_HASH: Field = $AGG_UTXO_VK_HASH;/" $REPO_ROOT/noir/agg_agg/src/main.nr
+    rm $REPO_ROOT/noir/agg_agg/src/main.nr.bak
   fi
 
   $BACKEND write_solidity_verifier --scheme ultra_honk -k $REPO_ROOT/fixtures/keys/${NAME}_key -o $REPO_ROOT/eth/noir/${NAME}.sol
+  sed -i.bak 's/external pure/internal pure/g' $REPO_ROOT/eth/noir/${NAME}.sol
+  rm $REPO_ROOT/eth/noir/${NAME}.sol.bak
   if [[ "$(uname)" == "Darwin" ]]; then
     SOLC=$REPO_ROOT/fixtures/binaries/solc-v0.8.29-macos
   else
     SOLC=$REPO_ROOT/fixtures/binaries/solc-v0.8.29-linux
   fi
-  $SOLC --combined-json bin --optimize --optimize-runs 1 $REPO_ROOT/eth/noir/$NAME.sol | jq -r ".contracts[\"$REPO_ROOT/eth/noir/$NAME.sol:HonkVerifier\"].bin" > $REPO_ROOT/eth/contracts/noir/${NAME}_HonkVerifier.bin
+  $SOLC --combined-json bin --revert-strings strip --optimize --optimize-runs 1 $REPO_ROOT/eth/noir/$NAME.sol | jq -r ".contracts[\"$REPO_ROOT/eth/noir/$NAME.sol:HonkVerifier\"].bin" > $REPO_ROOT/eth/contracts/noir/${NAME}_HonkVerifier.bin
 done
 
 echo "Successfully copied compiled programs to fixtures/keys/programs"

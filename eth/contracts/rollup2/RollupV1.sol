@@ -5,13 +5,14 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IVerifier} from "../noir/IVerifier.sol";
 import "../IUSDC.sol";
-import "./base/Util.sol";
 
 struct Mint {
     bytes32 note_kind;
     uint256 amount;
+    bool spent;
 }
 
 struct Signature {
@@ -34,17 +35,26 @@ struct PublicValidatorSet {
     uint256 validFrom;
 }
 
+// Verifiers
+struct Verifier {
+    IVerifier verifier;
+    uint32 messages_length;
+    bool enabled;
+}
+
 string constant NETWORK = "Payy";
 uint64 constant NETWORK_LEN = 4;
+uint256 constant MAX_FUTURE_BLOCKS = 2_592_000; // 30 days (~1 sec blocks)
 
 contract RollupV1 is Initializable, OwnableUpgradeable {
+    using SafeERC20 for IERC20;
     event RollupVerified(uint256 indexed height, bytes32 root);
-    event Minted(bytes32 indexed hash, uint256 value, address token);
+    event Minted(bytes32 indexed hash, bytes32 value, bytes32 note_kind);
     event ValidatorSetAdded(uint256 index, uint256 validFrom);
-    // TODO: do we not want to include the recipient address here?
     event Burned(
         address indexed token,
         bytes32 indexed burn_hash,
+        address indexed recipient,
         bool substitute,
         bool success
     );
@@ -53,17 +63,25 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         uint256 value,
         bytes32 note_kind
     );
+    event VerifierAdded(
+        bytes32 verificationKey,
+        address zkVerifierAddress,
+        uint32 messages_length
+    );
+    event VerifierRemoved(bytes32 verificationKey, address zkVerifierAddress);
+    event ProverAdded(address indexed prover);
+    event ProverRemoved(address indexed prover);
+    event RootHashUpdated(bytes32 indexed oldRoot, bytes32 indexed newRoot);
 
     // Since the Initializable._initialized version number is private, we need to keep track of it ourselves
     uint8 public version;
 
-    // Contracts
-    IVerifier public aggregateVerifier;
-    IVerifier public mintVerifier;
-    IUSDC public usdc;
+    // Verifiers
+    mapping(bytes32 => Verifier) public zkVerifiers;
+    bytes32[] public zkVerifierKeys;
 
-    // Allowed Proofs
-    mapping(bytes32 => bool) allowedVerificationKeyHash;
+    // Contracts
+    IUSDC public usdc;
 
     // Core rollup values
     uint256 public blockHeight;
@@ -74,9 +92,8 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
 
     // Burn Substitutor - stores a mapping of paid out substituted burns, so they can be refunded
     // once the rollup completes the original burn
-    // burn hash => burn address => note_kind => amount => to address
-    mapping(bytes32 => mapping(address => mapping(bytes32 => mapping(uint256 => address))))
-        public substitutedBurns;
+    // Composite key (hash + burnAddress + noteKind + amount) => substitute address
+    mapping(bytes32 => address) public substitutedBurns;
 
     // Allowed Tokens
     mapping(bytes32 => address) tokens;
@@ -85,8 +102,7 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
     mapping(address => uint) provers;
 
     // Validators
-    mapping(uint256 => ValidatorSet) private validatorSets;
-    uint256 private validatorSetsLength;
+    ValidatorSet[] private validatorSets;
     uint256 private validatorSetIndex;
 
     // Burn substitutors
@@ -100,30 +116,32 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
     function initialize(
         address owner,
         address _usdcAddress,
-        address _aggregateVerifier,
-        address _mintVerifier,
+        address _verifierAddress,
         address prover,
         address[] calldata initialValidators,
-        bytes32 emptyMerkleTreeRootHash,
-        bytes32 verificationKeyHash
+        bytes32 verifierKeyHash
     ) public initializer {
         version = 1;
 
         __Ownable_init(owner);
 
         usdc = IUSDC(_usdcAddress);
-        aggregateVerifier = IVerifier(_aggregateVerifier);
-        mintVerifier = IVerifier(_mintVerifier);
+
+        // Set the init aggregate verifier
+        _setZkVerifierProperties(verifierKeyHash, _verifierAddress, 6 * 5);
+        zkVerifierKeys.push(verifierKeyHash);
+
         provers[prover] = 1;
-        allowedVerificationKeyHash[verificationKeyHash] = true;
 
         _setValidators(0, initialValidators);
 
-        setRoot(emptyMerkleTreeRootHash);
-        addToken(
-            0x000200000000000000893c499c542cef5e3811e1192ce70d8cc03d5c33590000,
-            _usdcAddress
+        // Empty merkle tree root hash constant (from pkg/contracts/src/empty_merkle_tree_root_hash.txt)
+        _setRootHash(
+            0x0577b5b4aa3eaba75b2a919d5d7c63b7258aa507d38e346bf2ff1d48790379ff
         );
+        tokens[
+            0x000200000000000000893c499c542cef5e3811e1192ce70d8cc03d5c33590000
+        ] = _usdcAddress;
         burnSubstitutors[owner] = true;
     }
 
@@ -134,14 +152,95 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
 
     function addProver(address prover) public onlyOwner {
         provers[prover] = 1;
+        emit ProverAdded(prover);
+    }
+
+    function removeProver(address prover) public onlyOwner {
+        require(provers[prover] == 1, "Address is not a prover");
+        provers[prover] = 0;
+        emit ProverRemoved(prover);
     }
 
     modifier onlyBurnSubstitutor() {
         require(
             burnSubstitutors[msg.sender] == true,
-            "You are not a burn substitutor"
+            "RollupV1: You are not a burn substitutor"
         );
         _;
+    }
+
+    function _setZkVerifierProperties(
+        bytes32 keyHash,
+        address verifierAddress,
+        uint32 messagesLength
+    ) internal {
+        zkVerifiers[keyHash].verifier = IVerifier(verifierAddress);
+        zkVerifiers[keyHash].messages_length = messagesLength;
+        zkVerifiers[keyHash].enabled = true;
+    }
+
+    function addZkVerifier(
+        bytes32 verificationKeyHash,
+        address verifierAddress,
+        uint32 messages_length
+    ) public onlyOwner {
+        require(
+            verifierAddress != address(0),
+            "RollupV1: Invalid zk verifier address"
+        );
+        require(
+            verifierAddress.code.length > 0,
+            "RollupV1: ZK verifier is not a contract"
+        );
+        // Add to verifier keys if not enabled
+        if (!zkVerifiers[verificationKeyHash].enabled) {
+            zkVerifierKeys.push(verificationKeyHash);
+        }
+        _setZkVerifierProperties(
+            verificationKeyHash,
+            verifierAddress,
+            messages_length
+        );
+        emit VerifierAdded(
+            verificationKeyHash,
+            verifierAddress,
+            messages_length
+        );
+    }
+
+    function removeZkVerifier(bytes32 verificationKeyHash) public onlyOwner {
+        require(
+            zkVerifiers[verificationKeyHash].enabled,
+            "RollupV1: ZK verifier does not exist"
+        );
+        address verifierAddress = address(
+            zkVerifiers[verificationKeyHash].verifier
+        );
+        delete zkVerifiers[verificationKeyHash];
+        // Find and remove the verifierKey from verifierKeys array
+        uint256 length = zkVerifierKeys.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (zkVerifierKeys[i] == verificationKeyHash) {
+                // Move the last element to this position and remove the last element
+                zkVerifierKeys[i] = zkVerifierKeys[length - 1];
+                zkVerifierKeys.pop();
+                break;
+            }
+        }
+        emit VerifierRemoved(verificationKeyHash, verifierAddress);
+    }
+
+    function getZkVerifier(
+        bytes32 verificationKeyHash
+    ) public view returns (address, uint32) {
+        require(
+            zkVerifiers[verificationKeyHash].enabled,
+            "RollupV1: ZK verifier does not exist"
+        );
+        return (
+            address(zkVerifiers[verificationKeyHash].verifier),
+            zkVerifiers[verificationKeyHash].messages_length
+        );
     }
 
     function addBurnSubstitutor(address burnSubstitutor) public onlyOwner {
@@ -152,8 +251,14 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         burnSubstitutors[burnSubstitutor] = false;
     }
 
-    function setRoot(bytes32 newRoot) public onlyOwner {
+    function _setRootHash(bytes32 newRoot) internal {
+        bytes32 oldRoot = rootHash;
         rootHash = newRoot;
+        emit RootHashUpdated(oldRoot, newRoot);
+    }
+
+    function setRoot(bytes32 newRoot) public onlyOwner {
+        _setRootHash(newRoot);
     }
 
     function currentRootHash() public view returns (bytes32) {
@@ -173,19 +278,6 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         bytes32 noteKind
     ) public view returns (address) {
         return tokens[noteKind];
-    }
-
-    function setAllowedVerificationKeyHash(
-        bytes32 verificationKeyHash,
-        bool isAllowed
-    ) public onlyOwner {
-        allowedVerificationKeyHash[verificationKeyHash] = isAllowed;
-    }
-
-    function isVerificationKeyHashAllowed(
-        bytes32 verificationKeyHash
-    ) public view returns (bool) {
-        return allowedVerificationKeyHash[verificationKeyHash];
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
@@ -214,34 +306,35 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
     //
     ///////////
 
-    // TODO: we should break up this fn for more re-use
-    // Verify rollup with 36 messages
-    function verifyRollup36(
+    // Verify rollup
+    function verifyRollup(
         uint256 height,
+        bytes32 verificationKeyHash,
         bytes calldata aggrProof,
-        // verificationKeyHash, oldRoot, newRoot, commitHash, 6 utxo x 6 messages per utxo + 16 kzg
+        // oldRoot, newRoot, commitHash, <messages_length>, 16x kzg
         bytes32[] calldata publicInputs,
         bytes32 otherHashFromBlockHash,
         Signature[] calldata signatures
     ) public onlyProver {
-        bytes32 verificationKeyHash = publicInputs[0];
-        bytes32 oldRoot = publicInputs[1];
-        bytes32 newRoot = publicInputs[2];
-        bytes32 commitHash = publicInputs[3];
-
         require(
-            allowedVerificationKeyHash[verificationKeyHash],
-            "RollupV1: Proof verification key not allowed"
+            zkVerifiers[verificationKeyHash].enabled,
+            "RollupV1: ZK verifier not allowed"
         );
 
         require(
-            oldRoot == rootHash,
-            "RollupV1: Old root does not match the current root"
+            publicInputs.length ==
+                zkVerifiers[verificationKeyHash].messages_length + 3,
+            "RollupV1: Invalid publicInputs length"
         );
+
+        bytes32 oldRoot = publicInputs[0];
+        bytes32 newRoot = publicInputs[1];
+        bytes32 commitHash = publicInputs[2];
+
+        verifyRootHash(oldRoot);
 
         verifyCommitHash(commitHash);
 
-        // Verify validator
         verifyValidatorSignatures(
             newRoot,
             height,
@@ -249,49 +342,75 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
             signatures
         );
 
-        // Check mints/burns
-        uint i = 4;
-        while (i < 4 + 36) {
-            i = verifyMessages(i, publicInputs);
-        }
-
-        require(
-            aggregateVerifier.verify(aggrProof, publicInputs),
-            "RollupV1: Rollup proof verification failed"
+        verifyAllMessages(
+            // Skip the first 3 public inputs as these are never messages
+            3,
+            publicInputs,
+            zkVerifiers[verificationKeyHash].messages_length,
+            height
         );
 
-        setRoot(newRoot);
+        require(
+            zkVerifiers[verificationKeyHash].verifier.verify(
+                aggrProof,
+                publicInputs
+            ),
+            "RollupV1: ZK proof verification failed"
+        );
+
         rootHash = newRoot;
+        require(
+            height > blockHeight,
+            "RollupV1: New block height must be greater than current"
+        );
         blockHeight = height;
 
         emit RollupVerified(height, newRoot);
     }
 
+    function verifyRootHash(bytes32 expectedRoot) internal view {
+        require(
+            expectedRoot == rootHash,
+            "RollupV1: Root hash verification failed"
+        );
+    }
+
     // Placeholder for asserting the commit hash is stored on Celestia
     function verifyCommitHash(bytes32 commitHash) internal {}
 
+    function verifyAllMessages(
+        uint skipCount,
+        bytes32[] calldata publicInputs,
+        uint32 messages_length,
+        uint256 height
+    ) internal {
+        // Skip the first 4 (as they are processed separately)
+        uint i = skipCount;
+        uint end = skipCount + messages_length;
+        while (i < end) {
+            i = verifyMessages(i, publicInputs, height);
+        }
+    }
+
     function verifyMessages(
         uint index,
-        // This is actually publicInputs, which includes messages
-        bytes32[] calldata messages
+        bytes32[] calldata publicInputs,
+        uint256 height
     ) internal returns (uint) {
-        // Get the kind from last byte (least sig number)
-        uint8 kind = uint8(bytes1(messages[index][31]));
+        // Get the kind from public input at index
+        uint256 kind = uint256(publicInputs[index]);
 
         if (kind == 0) {
             return index + 1;
-        } else if (kind == 1) {
-            // Send
-            return index + 1;
         } else if (kind == 2) {
             // Mint
-            return verifyMint(index, messages);
+            return verifyMint(index, publicInputs);
         } else if (kind == 3) {
             // Burn
-            return verifyBurn(index, messages);
+            return verifyBurn(index, publicInputs, height);
         } else {
             // Not allowed
-            revert("Invalid message kind");
+            revert("RollupV1: Invalid message kind");
         }
     }
 
@@ -303,19 +422,26 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         bytes32 value = messages[i + 2];
         bytes32 hash = messages[i + 3];
 
-        require(mints[hash].amount == uint256(value), "Mint value invalid");
-        require(mints[hash].note_kind == note_kind, "Mint note kind invalid");
+        require(
+            mints[hash].amount == uint256(value),
+            "RollupV1: Mint value invalid"
+        );
+        require(
+            mints[hash].note_kind == note_kind,
+            "RollupV1: Mint note kind invalid"
+        );
+        require(mints[hash].spent == false, "RollupV1: Mint already spent");
+        mints[hash].spent = true;
 
-        // Remove the mint once we've ack it
-        mints[hash].note_kind = 0;
-        mints[hash].amount = 0;
+        emit Minted(hash, value, note_kind);
 
-        return i + 6;
+        return i + 4;
     }
 
     function verifyBurn(
         uint i,
-        bytes32[] calldata messages
+        bytes32[] calldata messages,
+        uint256 height
     ) internal returns (uint) {
         bytes32 note_kind = messages[i + 1];
         uint256 value = uint256(messages[i + 2]);
@@ -324,27 +450,49 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
 
         address token = tokens[note_kind];
 
-        address substitutor = substitutedBurns[hash][burn_addr][note_kind][
-            value
-        ];
+        bytes32 substituteBurnKey = getSubstituteBurnKey(
+            hash,
+            burn_addr,
+            note_kind,
+            value,
+            height
+        );
+        address substitutor = substitutedBurns[substituteBurnKey];
         if (substitutor != address(0)) {
-            executeBurn(
-                token,
-                substitutedBurns[hash][burn_addr][note_kind][value],
-                hash,
-                value,
-                false
-            );
+            executeBurn(token, substitutor, hash, value, false);
         } else {
             executeBurn(token, burn_addr, hash, value, false);
         }
 
-        return i + 6;
+        return i + 5;
     }
 
-    function bytes32ToAddress(bytes32 _bytes32) public pure returns (address) {
-        // TODO: can we not do address(uint160(_bytes32))
+    function bytes32ToAddress(
+        bytes32 _bytes32
+    ) internal pure returns (address) {
         return address(uint160(uint256(_bytes32)));
+    }
+
+    /**
+     * @dev Helper function to generate composite key for substitutedBurns mapping
+     * @param hash The burn hash
+     * @param burnAddress The burn address
+     * @param noteKind The note kind
+     * @param amount The amount
+     * @param burnBlockHeight The block height
+     * @return The composite key for the mapping
+     */
+    function getSubstituteBurnKey(
+        bytes32 hash,
+        address burnAddress,
+        bytes32 noteKind,
+        uint256 amount,
+        uint256 burnBlockHeight
+    ) internal pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(hash, burnAddress, noteKind, amount, burnBlockHeight)
+            );
     }
 
     /////////////////
@@ -361,7 +509,7 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         bool substitute
     ) internal returns (bool) {
         bool success = executeBurnToAddress(token, recipient, value);
-        emit Burned(token, burn_hash, substitute, success);
+        emit Burned(token, burn_hash, recipient, substitute, success);
         return success;
     }
 
@@ -370,22 +518,36 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         address recipient,
         uint256 value
     ) internal returns (bool) {
-        try IERC20(token).transfer(recipient, value) {
-            return true;
-        } catch {
+        (bool success, bytes memory returndata) = token.call(
+            abi.encodeCall(IERC20.transfer, (recipient, value))
+        );
+        if (!success) {
             return false;
         }
+        if (returndata.length != 0) {
+            bool func_return = abi.decode(returndata, (bool));
+            if (!func_return) {
+                return false;
+            }
+        }
+        return true;
     }
 
     function wasBurnSubstituted(
         address burn_address,
         bytes32 note_kind,
         bytes32 hash,
-        uint256 amount
+        uint256 amount,
+        uint256 burnBlockHeight
     ) public view returns (bool) {
-        return
-            substitutedBurns[hash][burn_address][note_kind][amount] !=
-            address(0);
+        bytes32 substituteBurnKey = getSubstituteBurnKey(
+            hash,
+            burn_address,
+            note_kind,
+            amount,
+            burnBlockHeight
+        );
+        return substitutedBurns[substituteBurnKey] != address(0);
     }
 
     function substituteBurn(
@@ -413,35 +575,36 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         uint256 amount,
         uint256 burnBlockHeight
     ) private {
+        bytes32 substituteBurnKey = getSubstituteBurnKey(
+            hash,
+            burnAddress,
+            note_kind,
+            amount,
+            burnBlockHeight
+        );
         require(
-            substitutedBurns[hash][burnAddress][note_kind][amount] ==
-                address(0),
+            substitutedBurns[substituteBurnKey] == address(0),
             "RollupV1: Burn already substituted"
         );
         require(
             blockHeight < burnBlockHeight,
-            "RollupV1: block height already rolled up"
+            "RollupV1: Block height already rolled up"
         );
 
         address token = tokens[note_kind];
         require(token != address(0), "RollupV1: Token not found for note kind");
 
-        require(
-            IERC20(token).transferFrom(
-                substituteAddress,
-                address(this),
-                amount
-            ),
-            "RollupV1: Transfer failed"
+        IERC20(token).safeTransferFrom(
+            substituteAddress,
+            address(this),
+            amount
         );
 
         bool success = executeBurn(token, burnAddress, hash, amount, true);
         require(success, "RollupV1: Burn failed");
 
         // This will be returned to the msg.sender when the rollup block for it is submitted
-        substitutedBurns[hash][burnAddress][note_kind][
-            amount
-        ] = substituteAddress;
+        substitutedBurns[substituteBurnKey] = substituteAddress;
     }
 
     /////////////////
@@ -458,7 +621,7 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
     // as they may not have gas to pay for the txn
     function mint(bytes32 mint_hash, bytes32 value, bytes32 note_kind) public {
         if (mints[mint_hash].amount != 0) {
-            revert("Mint already exists");
+            revert("RollupV1: Mint already exists");
         }
 
         address tokenAddress = tokens[note_kind];
@@ -469,7 +632,7 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
 
         // Take the money from the external account, sender must have been previously
         // approved as per the ERC20 standard
-        IERC20(tokenAddress).transferFrom(
+        IERC20(tokenAddress).safeTransferFrom(
             msg.sender,
             address(this),
             uint256(value)
@@ -478,7 +641,11 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         // Add mint to pending mints, this still needs to be verifier with the verifyBlock,
         // but Solid validators will check that this commitment exists in the mint map before
         // accepting the mint txn into a block
-        mints[mint_hash] = Mint({note_kind: note_kind, amount: uint256(value)});
+        mints[mint_hash] = Mint({
+            note_kind: note_kind,
+            amount: uint256(value),
+            spent: false
+        });
 
         emit MintAdded(mint_hash, uint256(value), note_kind);
     }
@@ -501,7 +668,7 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         bytes32 s2
     ) public {
         if (mints[mint_hash].amount != 0) {
-            revert("Mint already exists");
+            revert("RollupV1: Mint already exists");
         }
 
         bytes32 structHash = keccak256(
@@ -543,7 +710,11 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
             s
         );
 
-        mints[mint_hash] = Mint({note_kind: note_kind, amount: uint256(value)});
+        mints[mint_hash] = Mint({
+            note_kind: note_kind,
+            amount: uint256(value),
+            spent: false
+        });
         emit MintAdded(mint_hash, uint256(value), note_kind);
     }
 
@@ -561,12 +732,12 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         updateValidatorSetIndex(height);
         ValidatorSet storage validatorSet = getValidators();
 
-        require(signatures.length > 0, "No signatures");
+        require(signatures.length > 0, "RollupV1: No signatures");
 
         uint minValidators = (validatorSet.validatorsArray.length * 2) / 3 + 1;
         require(
             signatures.length >= minValidators,
-            "Not enough signatures from validators to verify block"
+            "RollupV1: Not enough signatures from validators to verify block"
         );
 
         bytes32 sigHash = getSignatureMessageHash(
@@ -586,10 +757,10 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
             );
             require(
                 validatorSet.validators[signer] == true,
-                "Signer is not a validator"
+                "RollupV1: Signer is not a validator"
             );
 
-            require(signer > previous, "Signers are not sorted");
+            require(signer > previous, "RollupV1: Signers are not sorted");
             previous = signer;
         }
     }
@@ -614,10 +785,10 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         uint256 from
     ) public view returns (PublicValidatorSet[] memory) {
         PublicValidatorSet[] memory sets = new PublicValidatorSet[](
-            validatorSetsLength - from
+            validatorSets.length - from
         );
 
-        for (uint256 i = from; i < validatorSetsLength; i++) {
+        for (uint256 i = from; i < validatorSets.length; i++) {
             sets[i - from] = PublicValidatorSet(
                 validatorSets[i].validatorsArray,
                 validatorSets[i].validFrom
@@ -636,26 +807,32 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
         address[] calldata validators
     ) private {
         require(
-            validatorSetsLength == 0 ||
-                validatorSets[validatorSetsLength - 1].validFrom < validFrom,
-            "New validator set must have a validFrom greater than the last set"
+            validatorSets.length == 0 ||
+                validatorSets[validatorSets.length - 1].validFrom < validFrom,
+            "RollupV1: New validator set must have a validFrom greater than the last set"
+        );
+        require(
+            validFrom == 0 || validFrom <= block.number + MAX_FUTURE_BLOCKS,
+            "RollupV1: validFrom cannot be more than 30 days in the future"
         );
 
-        validatorSets[validatorSetsLength].validFrom = validFrom;
-        validatorSets[validatorSetsLength].validatorsArray = validators;
+        // Create a new ValidatorSet and push it to the array
+        validatorSets.push();
+        uint256 newIndex = validatorSets.length - 1;
+
+        validatorSets[newIndex].validFrom = validFrom;
+        validatorSets[newIndex].validatorsArray = validators;
 
         for (uint256 i = 0; i < validators.length; i++) {
             require(
-                validatorSets[validatorSetsLength].validators[validators[i]] ==
-                    false,
-                "Validator already exists"
+                validatorSets[newIndex].validators[validators[i]] == false,
+                "RollupV1: Validator already exists"
             );
 
-            validatorSets[validatorSetsLength].validators[validators[i]] = true;
+            validatorSets[newIndex].validators[validators[i]] = true;
         }
 
-        emit ValidatorSetAdded(validatorSetsLength, validFrom);
-        validatorSetsLength += 1;
+        emit ValidatorSetAdded(newIndex, validFrom);
     }
 
     function setValidators(
@@ -666,12 +843,45 @@ contract RollupV1 is Initializable, OwnableUpgradeable {
     }
 
     function updateValidatorSetIndex(uint256 height) internal {
-        for (uint256 i = validatorSetIndex + 1; i < validatorSetsLength; i++) {
+        for (uint256 i = validatorSetIndex + 1; i < validatorSets.length; i++) {
             if (validatorSets[i].validFrom > height) {
                 break;
             }
 
             validatorSetIndex = i;
         }
+    }
+
+    // Debug function to expose internal hash calculation
+    function debugGetSignatureMessageHash(
+        bytes32 newRoot,
+        uint256 height,
+        bytes32 otherHashFromBlockHash
+    ) external pure returns (bytes32) {
+        return getSignatureMessageHash(newRoot, height, otherHashFromBlockHash);
+    }
+
+    // Debug function to expose intermediate values
+    function debugGetIntermediateHashes(
+        bytes32 newRoot,
+        uint256 height,
+        bytes32 otherHashFromBlockHash
+    )
+        external
+        pure
+        returns (bytes32 proposalHash, bytes32 acceptMsg, bytes32 sigMsg)
+    {
+        proposalHash = keccak256(
+            abi.encode(newRoot, height, otherHashFromBlockHash)
+        );
+        acceptMsg = keccak256(abi.encode(height + 1, proposalHash));
+        sigMsg = keccak256(abi.encodePacked(NETWORK_LEN, NETWORK, acceptMsg));
+    }
+
+    // Debug function to see the raw packed bytes
+    function debugGetPackedBytes(
+        bytes32 acceptMsg
+    ) external pure returns (bytes memory) {
+        return abi.encodePacked(NETWORK_LEN, NETWORK, acceptMsg);
     }
 }

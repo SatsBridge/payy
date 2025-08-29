@@ -1,4 +1,4 @@
-use std::hash::poseidon2;
+use poseidon::poseidon2;
 
 pub struct Note {
     pub kind: Field,
@@ -21,7 +21,10 @@ pub fn get_note_commitment(note: Note) -> Field {
         assert(note.value == 0, "Padding notes must be zero value");
         0
     } else {
-        poseidon2::Poseidon2::hash([note.kind, note.value, note.address, note.psi], 4)
+        poseidon2::Poseidon2::hash(
+            [0x2, note.kind, note.value, note.address, note.psi, 0, 0],
+            7,
+        )
     }
 }
 
@@ -57,4 +60,14 @@ pub fn field_from_bytes<let N: u32>(bytes: [u8; N]) -> Field {
         offset *= 256;
     }
     as_field
+}
+
+pub fn is_one_of(value: Field, one_of: [Field]) -> bool {
+    let mut is_one_of = false;
+    for possible in one_of {
+        if possible == value {
+            is_one_of = true;
+        }
+    }
+    is_one_of
 }
