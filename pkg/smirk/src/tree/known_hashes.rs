@@ -42,7 +42,8 @@ impl Node {
 
 #[cfg(test)]
 mod tests {
-    use zk_primitives::{hash_merge, Element};
+    use element::Element;
+    use hash::hash_merge;
 
     use crate::{hash::empty_tree_hash, smirk};
 

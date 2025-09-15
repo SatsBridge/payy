@@ -1,4 +1,4 @@
-use node::UtxoProof;
+use element::Element;
 use primitives::{
     block_height::BlockHeight,
     hash::CryptoHash,
@@ -6,7 +6,7 @@ use primitives::{
     sig::Signature,
 };
 use serde::{Deserialize, Serialize};
-use smirk::Element;
+use zk_primitives::UtxoProof;
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Block {
@@ -44,6 +44,7 @@ pub struct TransactionResp {
 
 #[derive(Debug, Deserialize)]
 pub struct HeightResp {
+    #[expect(dead_code)]
     pub height: BlockHeight,
     pub root_hash: Element,
 }
@@ -135,3 +136,11 @@ pub struct ListBlocksResponse {
     pub blocks: Vec<BlockWithInfo>,
     pub cursor: OpaqueCursor<BlockHeight>,
 }
+
+#[derive(Debug, PartialEq, Deserialize)]
+pub struct SmirkElementInfo {
+    pub element: Element,
+    pub inserted_at_height: u64,
+}
+
+pub type GetAllSmirkElementsResponse = Vec<SmirkElementInfo>;

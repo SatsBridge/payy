@@ -12,7 +12,9 @@ pub fn network_handler(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            let Some((network_peer_id, event)) = network.next().await else { continue };
+            let Some((network_peer_id, event)) = network.next().await else {
+                continue;
+            };
             tracing::debug!(network_peer_id = ?network_peer_id, event = ?event, "network event");
 
             if let Err(e) = handle_event(&node, network_peer_id, event).await {

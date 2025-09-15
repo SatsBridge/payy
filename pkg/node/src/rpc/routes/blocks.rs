@@ -2,6 +2,7 @@ use super::{txn::TxnWithInfo, State};
 use crate::node;
 use actix_web::web;
 use either::Either;
+use element::Element;
 use primitives::{
     block_height::BlockHeight,
     hash::CryptoHash,
@@ -10,7 +11,6 @@ use primitives::{
 };
 use rpc::error::HttpResult;
 use serde::{de::IntoDeserializer, Deserialize, Serialize};
-use smirk::Element;
 use wire_message::WireMessage;
 
 pub type BlockResponse = BlockWithInfo;

@@ -27,11 +27,15 @@ where
         .filter_map(|result| {
             let (key, value) = result.ok()?;
 
-            let KeyFormat::V2(KeyV2::KnownHash { left, right }) = KeyFormat::from_bytes(&key).ok()? else {
+            let KeyFormat::V2(KeyV2::KnownHash { left, right }) =
+                KeyFormat::from_bytes(&key).ok()?
+            else {
                 return None;
             };
 
-            let ValueFormat::<V>::V2(ValueV2::KnownHash(result)) = ValueFormat::from_bytes(&value).ok()? else {
+            let ValueFormat::<V>::V2(ValueV2::KnownHash(result)) =
+                ValueFormat::from_bytes(&value).ok()?
+            else {
                 return None;
             };
 
@@ -43,7 +47,9 @@ where
         })
         .collect::<HashSet<_>>();
 
-    let hashes_to_insert = in_memory_hashes.into_iter().filter(|hash| !in_db_hashes.contains(hash));
+    let hashes_to_insert = in_memory_hashes
+        .into_iter()
+        .filter(|hash| !in_db_hashes.contains(hash));
 
     let mut batch = WriteBatch::default();
 

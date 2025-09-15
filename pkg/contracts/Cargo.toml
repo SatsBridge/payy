@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 zk-primitives = { workspace = true }
+element = { workspace = true }
 testutil = { workspace = true }
+eth-util = { workspace = true }
 
 color-eyre = { workspace = true }
 ethereum-types = { workspace = true }
@@ -25,9 +27,10 @@ clap = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+barretenberg = { workspace = true }
+hash = { workspace = true }
 
 expect-test = { workspace = true }
 secp256k1 = { workspace = true }
 smirk = { workspace = true }
-zk-circuits = { workspace = true }
 serial_test = { workspace = true }

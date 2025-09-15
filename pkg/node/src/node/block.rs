@@ -1,6 +1,5 @@
-use either::Either;
 use prover::smirk_metadata::SmirkMetadata;
-use smirk::{Batch, Element};
+use smirk::Batch;
 use tracing::instrument;
 
 use crate::{
@@ -43,31 +42,22 @@ impl NodeShared {
         notes_tree: &mut PersistentMerkleTree,
         state: &BlockState,
         current_height: BlockHeight,
-        ignore_collisions: bool,
     ) -> Result<()> {
-        let leaves = state
+        let insert_leaves = state
             .txns
             .iter()
-            .flat_map(|txn| txn.leaves())
-            .filter(|e| *e != Element::ZERO);
+            .flat_map(|txn| txn.public_inputs.output_commitments)
+            .filter(|e| !e.is_zero());
 
-        for leaf in leaves.clone() {
-            if !ignore_collisions && notes_tree.tree().contains_element(&leaf) {
-                panic!("Double-spend detected. This should never happen, this should have been caught before commit");
-            }
-        }
+        let remove_leaves = state
+            .txns
+            .iter()
+            .flat_map(|txn| txn.public_inputs.input_commitments)
+            .filter(|e| !e.is_zero());
 
         let metadata = SmirkMetadata::inserted_in(current_height.0);
-        let leaves_with_height = leaves.map(|e| (e, metadata.clone()));
-        let leaves_with_height_maybe_ignoring_collisions = match ignore_collisions {
-            false => Either::Left(leaves_with_height),
-            true => Either::Right(
-                // If we're ignoring collisions, we need to filter out the leaves that are already in the tree,
-                // otherwise the insert_batch would fail.
-                leaves_with_height.filter(|(leaf, _)| !notes_tree.tree().contains_element(leaf)),
-            ),
-        };
-        let batch = Batch::from_entries(leaves_with_height_maybe_ignoring_collisions)?;
+        let leaves_with_height = insert_leaves.map(|e| (e, metadata.clone()));
+        let batch = Batch::from_entries(leaves_with_height, remove_leaves.collect::<Vec<_>>())?;
 
         notes_tree.insert_batch(batch)?;
         Ok(())

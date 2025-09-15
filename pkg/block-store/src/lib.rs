@@ -1,19 +1,22 @@
 // These features have been stabilized in recent Rust versions
 #![allow(incomplete_features)]
-#![feature(return_position_impl_trait_in_trait)]
-#![feature(associated_type_defaults)]
-#![feature(bound_map)]
+// #![feature(return_position_impl_trait_in_trait)]
+// #![feature(associated_type_defaults)]
+// #![feature(bound_map)]
 
 mod keys;
 mod list;
 mod migration;
+mod values;
 
 use std::{marker::PhantomData, path::Path};
 
-use keys::{Key, KeyBlock, StoreKey};
+use borsh::{BorshDeserialize, BorshSerialize};
+use keys::{ElementHistoryKind, Key, KeyBlock, StoreKey};
 use migration::LATEST_VERSION;
-use primitives::block_height::BlockHeight;
+use primitives::{block_height::BlockHeight, hash::CryptoHash};
 use rocksdb::DB;
+use values::{ElementHistoryData, ElementHistoryValue};
 use wire_message::WireMessage;
 
 pub use keys::BlockListOrder;
@@ -23,6 +26,9 @@ pub use list::StoreList;
 pub enum Error {
     #[error("invalid key")]
     InvalidKey,
+
+    #[error("invalid value {0}")]
+    InvalidValue(u64),
 
     #[error("invalid version '{0}'")]
     InvalidVersion(u32),
@@ -55,12 +61,14 @@ pub trait Block {
 
 pub trait Transaction {
     fn txn_hash(&self) -> [u8; 32];
+    fn input_elements(&self) -> Vec<element::Element>;
+    fn output_elements(&self) -> Vec<element::Element>;
 }
 
 impl<B> BlockStore<B>
 where
     B: Block + WireMessage,
-    B::Txn: WireMessage,
+    B::Txn: WireMessage + Transaction,
 {
     fn db_options(create_if_missing: bool) -> rocksdb::Options {
         let mut opts = rocksdb::Options::default();
@@ -99,11 +107,10 @@ where
     }
 
     pub fn set(&self, block: &B) -> Result<()> {
-        // Use a batch to write atomically in case we crash in the middle
         let mut batch = rocksdb::WriteBatchWithTransaction::<false>::default();
 
         let height = block.block_height();
-        let block_hash = block.block_hash();
+        let block_hash_arr = block.block_hash();
 
         batch.put(Key::Block(KeyBlock(height)).serialize(), block.to_bytes()?);
 
@@ -113,18 +120,42 @@ where
         }
 
         batch.put(
-            Key::BlockHashToHeight(block_hash).serialize(),
+            Key::BlockHashToHeight(block_hash_arr).serialize(),
             height.to_be_bytes(),
         );
 
         for e in Self::txn_entries(block) {
             let (k, v) = e?;
-
             batch.put(k.serialize(), v);
         }
 
         if let Some(key) = keys::KeyNonEmptyBlock::from_block(block) {
             batch.put(key.to_key().serialize(), block.to_bytes()?);
+        }
+
+        for txn in block.txns() {
+            for (leaf, kind) in txn
+                .input_elements()
+                .into_iter()
+                .map(|e| (e, ElementHistoryKind::Input))
+                .chain(
+                    txn.output_elements()
+                        .into_iter()
+                        .map(|e| (e, ElementHistoryKind::Output)),
+                )
+            {
+                let history_key = Key::ElementHistory((leaf, kind));
+                let history_data = ElementHistoryData {
+                    block_hash: CryptoHash(block_hash_arr),
+                    block_height: height,
+                };
+                let history_value = ElementHistoryValue::V1(history_data);
+
+                let mut history_value_bytes = Vec::new();
+                history_value.serialize(&mut history_value_bytes)?;
+
+                batch.put(history_key.serialize(), &history_value_bytes);
+            }
         }
 
         self.db.write(batch)?;
@@ -202,16 +233,44 @@ where
             .put(Key::StoreVersion.serialize(), version.to_be_bytes())?;
         Ok(())
     }
+
+    fn get_element_history_with_kind(
+        &self,
+        element: element::Element,
+        kind: ElementHistoryKind,
+    ) -> Result<Option<ElementHistoryData>> {
+        let key = Key::ElementHistory((element, kind));
+        let Some(bytes) = self.db.get(key.serialize())? else {
+            return Ok(None);
+        };
+        let value = ElementHistoryValue::deserialize(&mut &bytes[..])?;
+        match value {
+            ElementHistoryValue::V1(data) => Ok(Some(data)),
+        }
+    }
+
+    /// Returns (Input History, Output History)
+    pub fn get_element_history(
+        &self,
+        element: element::Element,
+    ) -> Result<(Option<ElementHistoryData>, Option<ElementHistoryData>)> {
+        Ok((
+            self.get_element_history_with_kind(element, ElementHistoryKind::Input)?,
+            self.get_element_history_with_kind(element, ElementHistoryKind::Output)?,
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use element::Element;
     use tempdir::TempDir;
+    use wire_message::test_api::DummyMsg;
 
-    pub(crate) type DummyBlock =
-        wire_message::test_api::DummyMsg<(BlockHeight, [u8; 32], Vec<DummyTxn>)>;
-    pub(crate) type DummyTxn = wire_message::test_api::DummyMsg<[u8; 32]>;
+    pub(crate) type DummyBlock = DummyMsg<(BlockHeight, [u8; 32], Vec<DummyTxn>)>;
+    pub(crate) type DummyTxn =
+        wire_message::test_api::DummyMsg<([u8; 32], (Vec<Element>, Vec<Element>))>;
 
     impl Block for DummyBlock {
         type Txn = DummyTxn;
@@ -231,7 +290,15 @@ mod tests {
 
     impl Transaction for DummyTxn {
         fn txn_hash(&self) -> [u8; 32] {
-            *self.inner()
+            self.inner().0
+        }
+
+        fn input_elements(&self) -> Vec<element::Element> {
+            self.inner().1 .0.clone()
+        }
+
+        fn output_elements(&self) -> Vec<element::Element> {
+            self.inner().1 .1.clone()
         }
     }
 
@@ -251,7 +318,12 @@ mod tests {
         let block_store = BlockStore::<DummyBlock>::create_or_load(temp_dir.path()).unwrap();
 
         let block_number = BlockHeight(1);
-        let txns = vec![DummyTxn::V1([123; 32]), DummyTxn::V1([124; 32])];
+        let element1 = Element::from(100u64);
+        let element2 = Element::from(101u64);
+        let txns = vec![
+            DummyTxn::V1(([123; 32], (vec![], vec![element1, element2]))),
+            DummyTxn::V1(([124; 32], (vec![element1, element2], vec![]))),
+        ];
         let block_data = DummyBlock::V1((block_number, [0; 32], txns.clone()));
 
         block_store.set(&block_data).unwrap();
@@ -288,6 +360,35 @@ mod tests {
 
         let listed_txns = block_store.list_txns().collect::<Result<Vec<_>>>().unwrap();
         assert_eq!(listed_txns, txns);
+
+        // Test get_element_history
+        // TODO: write better tests for this
+        let (history1_input, history1_output) = block_store.get_element_history(element1).unwrap();
+        let history1_input = history1_input.unwrap();
+        let history1_output = history1_output.unwrap();
+        assert_eq!(history1_output.block_height, block_number);
+        assert_eq!(
+            history1_input.block_hash,
+            primitives::hash::CryptoHash::new([0u8; 32]),
+        );
+
+        let history2 = block_store
+            .get_element_history(element2)
+            .unwrap()
+            .1
+            .unwrap();
+        assert_eq!(history2.block_height, block_number);
+        assert_eq!(
+            history2.block_hash,
+            primitives::hash::CryptoHash::new([0u8; 32]),
+        );
+
+        let non_existent_element = element::Element::from(999u64);
+        assert!(block_store
+            .get_element_history(non_existent_element)
+            .unwrap()
+            .1
+            .is_none());
     }
 
     #[test]
@@ -295,7 +396,6 @@ mod tests {
         let temp_dir = temp_dir();
         let block_store = BlockStore::<DummyBlock>::create_or_load(temp_dir.path()).unwrap();
 
-        // Insert some blocks
         for i in 0..10_000 {
             block_store
                 .set(&DummyBlock::V1((BlockHeight(i as u64), [0; 32], vec![])))
@@ -320,13 +420,11 @@ mod tests {
             );
         }
 
-        // Paginated list
         let blocks = block_store
             .list_paginated(&None, BlockListOrder::LowestToHighest, usize::MAX)
             .unwrap()
             .collect::<Result<Vec<_>>>()
             .unwrap();
-        // Same order, but backwards
         let before_blocks = block_store
             .list_paginated(
                 &Some(primitives::pagination::CursorChoice::Before(
@@ -340,12 +438,8 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>>>()
             .unwrap();
-        // The order when iterating backwards
-        // should still be consistent with the requested LowestToHighest order,
-        // such that the lowest height blocks are first.
         assert_eq!(blocks, before_blocks);
 
-        // Same thing, but with a limit that's less than the max number of blocks
         let before_blocks_except_first = block_store
             .list_paginated(
                 &Some(primitives::pagination::CursorChoice::Before(

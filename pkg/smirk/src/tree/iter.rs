@@ -1,6 +1,6 @@
+use crate::Tree;
+use element::Element;
 use std::collections::btree_map;
-
-use crate::{Element, Tree};
 
 #[derive(Debug, Clone)]
 pub struct Elements<'a, V> {
@@ -25,6 +25,7 @@ impl<const DEPTH: usize, V, C> Tree<DEPTH, V, C> {
     ///
     /// ```rust
     /// # use smirk::*;
+    /// # use element::Element;
     /// let tree: Tree<64, _> = smirk! { 1, 2, 3 };
     ///
     /// let vec: Vec<(&Element, &())> = tree.elements().collect();
@@ -78,16 +79,6 @@ impl<'a, V> Iterator for Iter<'a, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
-    }
-}
-
-impl<const N: usize, V, C> Tree<N, V, C> {
-    /// Get an iterator over elements and values
-    #[must_use]
-    pub fn iter(&self) -> Iter<V> {
-        Iter {
-            inner: self.entries.iter(),
-        }
     }
 }
 

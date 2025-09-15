@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 contracts = { workspace = true }
+element = { workspace = true }
 primitives = { workspace = true }
 rpc = { workspace = true }
-zk-circuits = { workspace = true }
 zk-primitives = { workspace = true }
 
 clap = { workspace = true }

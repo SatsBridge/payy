@@ -34,13 +34,13 @@ pub enum Error {
     Send(&'static str),
 
     #[error("node error: {0}")]
-    NodeError(#[from] Box<crate::Error>),
+    Node(#[from] Box<crate::Error>),
 
     #[error("smirk collision error: {0}")]
-    SmirkCollisionError(#[from] smirk::CollisionError),
+    SmirkCollision(#[from] smirk::CollisionError),
 
     #[error("smirk storage error: {0}")]
-    SmirkStorageError(#[from] smirk::storage::Error),
+    SmirkStorage(#[from] smirk::storage::Error),
 
     #[error("tokio join error: {0}")]
     TokioJoin(#[from] tokio::task::JoinError),
@@ -370,37 +370,53 @@ impl SyncWorker {
             return Ok(());
         };
 
-        let block_elements = block
+        // Input commitments (to be removed from the tree)
+        let block_input_commitments = block
             .content
             .state
             .txns
             .iter()
-            .flat_map(|txn| txn.leaves())
-            .filter(|l| !l.is_zero())
+            .flat_map(|utxo_proof| utxo_proof.public_inputs.input_commitments)
+            .filter(|l: &_| !l.is_zero())
+            .collect::<HashSet<_>>();
+
+        // Output commitments (to be added to the tree)
+        let block_output_commitments = block
+            .content
+            .state
+            .txns
+            .iter()
+            .flat_map(|utxo_proof| utxo_proof.public_inputs.input_commitments)
+            .filter(|l: &_| !l.is_zero())
+            // Filter input commitments that are also output commitments (i.e. note was
+            // created and spent in the same block)
+            .filter(|l| !block_input_commitments.contains(l))
             .collect::<HashSet<_>>();
 
         {
             let mut tree = self.node.notes_tree().write();
-            let elements = HashSet::from_iter(elements.iter())
-                .difference(
-                    &tree
-                        .tree()
-                        .elements()
-                        .map(|(e, _)| e)
-                        .collect::<HashSet<_>>(),
-                )
-                .copied()
-                .copied()
-                .collect::<Vec<_>>();
-            if tree.tree().root_hash_with(&elements) != block.content.state.root_hash {
+
+            if tree.tree().root_hash_with(
+                block_input_commitments
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                block_output_commitments
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            ) != block.content.state.root_hash
+            {
                 error!("Fast snapshot chunk root hash mismatch");
                 return Ok(());
             }
 
             let mut batch = smirk::Batch::new();
-            let mut block_elements_left_to_find = block_elements.clone();
+            let mut block_elements_left_to_find = block_input_commitments.clone();
+
             for element in elements {
-                if block_elements.contains(&element) {
+                if block_input_commitments.contains(&element) {
                     block_elements_left_to_find.remove(&element);
                     continue;
                 }
@@ -417,6 +433,7 @@ impl SyncWorker {
             }
 
             tree.insert_batch(batch)?;
+
             self.node
                 .block_cache
                 .lock()

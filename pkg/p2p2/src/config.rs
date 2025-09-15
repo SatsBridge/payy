@@ -1,4 +1,4 @@
-use std::{path::Path, sync::OnceLock, collections::HashSet, net::IpAddr};
+use std::{collections::HashSet, net::IpAddr, path::Path, sync::OnceLock};
 
 use figment::{
     providers::{Env, Format, Toml},
@@ -52,7 +52,7 @@ impl Config {
     /// In particular, specific fields can be overridden by setting the `P2P_*` environment
     /// variable. For example:
     ///  - to override `listen_on`, set `P2P_LISTEN-ON="..."` (notice the kebab case inside an
-    ///  identifier)
+    ///    identifier)
     ///  - to override `foo.bar`, set `P2P_FOO_BAR="..."`
     ///
     ///  Use underscores to separate identifiers, and hyphens to separate words within an

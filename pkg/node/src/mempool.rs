@@ -155,11 +155,7 @@ where
             let key = if let Some(k) = k { k } else { key.clone() };
 
             // Add it to the lease
-            state
-                .leased
-                .entry(lease.clone())
-                .or_insert(HashSet::new())
-                .insert(key);
+            state.leased.entry(lease.clone()).or_default().insert(key);
         }
     }
 
@@ -189,7 +185,7 @@ where
             state
                 .leased
                 .entry(lease.clone())
-                .or_insert(HashSet::new())
+                .or_default()
                 .insert(key.clone());
 
             conflict_check.extend(changes);
@@ -279,7 +275,7 @@ mod tests {
         let state = mempool.state.lock();
         assert_eq!(state.txns.len(), 1);
         assert_eq!(state.pool.len(), 1);
-        assert!(state.txns.get("key1").is_none());
+        assert!(!state.txns.contains_key("key1"));
         assert_eq!(state.txns.get("key2").unwrap().txn, 24);
     }
 

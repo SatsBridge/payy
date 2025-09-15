@@ -46,13 +46,19 @@ impl USDCContract {
         }
     }
 
-    pub fn at_height(mut self, block_height: Option<u64>) -> Self {
-        self.block_height = block_height.map(|x| x.into());
-        self
+    pub fn at_height(&self, block_height: u64) -> Self {
+        Self {
+            block_height: Some(U64::from(block_height)),
+            ..self.clone()
+        }
     }
 
     pub fn address(&self) -> Address {
         self.address
+    }
+
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     pub async fn load(client: Client, usdc_contract_addr: &str, signer: SecretKey) -> Result<Self> {

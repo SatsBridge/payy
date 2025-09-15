@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
             "node",
             "solid",
             "smirk",
-            "p2p",
+            "p2p2",
             "prover",
             "zk_primitives",
             "contracts",

@@ -11,13 +11,14 @@ use crate::network::NetworkEvent;
 use crate::network_handler::network_handler;
 use crate::node::load::LoadedData;
 use crate::types::BlockHeight;
-use crate::utxo::UtxoProof;
 use crate::{sync, util};
 use block_store::{BlockListOrder, BlockStore, StoreList};
 use contracts::RollupContract;
 use doomslug::{Approval, ApprovalContent, ApprovalStake, ApprovalValidated, Doomslug};
+use element::Element;
 use futures::Stream;
 use libp2p::PeerId;
+use node_interface::{ElementData, RpcError};
 use p2p2::Network;
 use parking_lot::{Mutex, RwLock};
 use primitives::hash::CryptoHash;
@@ -36,7 +37,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, instrument};
-use zk_primitives::Element;
+use zk_primitives::UtxoProof;
 
 pub use self::block_format::BlockFormat;
 pub use self::txn_format::TxnFormat;
@@ -95,7 +96,7 @@ pub struct NodeShared {
     doomslug: Arc<Mutex<Doomslug>>,
 
     /// Mempool for storing pending txns
-    mempool: Mempool<CryptoHash, UtxoProof, BlockHeight, Element, Arc<Block>>,
+    mempool: Mempool<Element, UtxoProof, BlockHeight, Element, Arc<Block>>,
 
     // Block cache (unconfirmed blocks)
     pub(crate) block_cache: Arc<Mutex<BlockCache>>,
@@ -242,19 +243,16 @@ impl Node {
             }
         }
 
+        // Run the ticker
+        self.shared
+            .ticker
+            .run(NodeSharedArc(Arc::clone(&self.shared)));
+
         // Wait for the handlers
         tokio::select! {
             res = self.sync_worker.run() => {
                 if let Err(err) =  res {
                     tracing::error!(?err, "Sync worker ended");
-                }
-            }
-            res = self.shared.ticker.run(NodeSharedArc(Arc::clone(&self.shared))) => {
-                match res {
-                    Ok(()) => {}
-                    Err(err) => {
-                        tracing::error!(?err, "Commit ticker ended");
-                    }
                 }
             }
         }
@@ -305,7 +303,7 @@ impl NodeShared {
             .map(|e| {
                 // Check the element is in the tree
                 if !tree.contains_element(e) {
-                    return Err(Error::ElementNotInTree { element: *e });
+                    return Err(RpcError::ElementNotFound(ElementData { element: *e }))?;
                 }
 
                 // Return the path
@@ -472,7 +470,10 @@ impl NodeShared {
     }
 
     pub(crate) fn get_block_by_hash(&self, hash: CryptoHash) -> Result<Option<BlockFormat>> {
-        let Some(block_height) = self.block_store.get_block_height_by_hash(hash.into_inner())? else {
+        let Some(block_height) = self
+            .block_store
+            .get_block_height_by_hash(hash.into_inner())?
+        else {
             return Ok(None);
         };
 

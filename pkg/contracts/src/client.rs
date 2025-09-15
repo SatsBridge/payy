@@ -65,6 +65,11 @@ impl Client {
         &self.client
     }
 
+    pub async fn get_latest_block_height(&self) -> Result<U64> {
+        let block_number = self.client.eth().block_number().await?;
+        Ok(block_number)
+    }
+
     pub async fn fast_gas_price(&self) -> Result<U256, web3::Error> {
         let gas_price: U256 =
             retry_on_network_failure(move || self.client.eth().gas_price()).await?;

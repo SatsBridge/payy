@@ -80,7 +80,7 @@ where
     fn map<NewMapped, F: FnMut(Self::Item) -> NewMapped + Send>(
         self,
         map: F,
-    ) -> MappedList<F, NewMapped, Self> {
+    ) -> impl StoreList<Item = NewMapped> {
         MappedList {
             list: self,
             map,
@@ -114,7 +114,7 @@ where
     fn map<NewItem, NF: FnMut(Self::Item) -> NewItem + Send>(
         self,
         map: NF,
-    ) -> MappedList<NF, NewItem, Self> {
+    ) -> impl StoreList<Item = NewItem> {
         MappedList {
             map,
             list: self,

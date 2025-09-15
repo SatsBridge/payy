@@ -1,12 +1,10 @@
-use core::fmt::Debug;
-use std::path::Path;
-
+use crate::{hash_cache::SimpleHashCache, Tree};
 use borsh::{BorshDeserialize, BorshSerialize};
-use rocksdb::DB;
-
+use core::fmt::Debug;
+use element::Element;
 pub use error::Error;
-
-use crate::{hash_cache::SimpleHashCache, Element, Tree};
+use rocksdb::DB;
+use std::path::Path;
 
 mod batch;
 mod error;
@@ -21,6 +19,7 @@ mod tests;
 ///
 /// ```rust
 /// # use smirk::*;
+/// # use element::Element;
 /// # use smirk::storage::*;
 /// # let dir = tempdir::TempDir::new("smirk_doctest").unwrap();
 /// # let path = dir.path().join("db");
@@ -35,6 +34,7 @@ impl<const DEPTH: usize, V> Persistent<DEPTH, V> {
     ///
     /// ```rust
     /// # use smirk::*;
+    /// # use element::Element;
     /// # use smirk::storage::*;
     /// # let dir = tempdir::TempDir::new("smirk_doctest").unwrap();
     /// # let path = dir.path().join("db");
@@ -54,6 +54,7 @@ impl<const DEPTH: usize, V> Persistent<DEPTH, V> {
     ///
     /// ```rust
     /// # use smirk::*;
+    /// # use element::Element;
     /// # use smirk::storage::*;
     /// # let dir = tempdir::TempDir::new("smirk_doctest").unwrap();
     /// # let path = dir.path().join("db");
@@ -80,6 +81,7 @@ impl<const DEPTH: usize, V> Persistent<DEPTH, V> {
     ///
     /// ```rust
     /// # use smirk::*;
+    /// # use element::Element;
     /// # use smirk::storage::*;
     /// # let dir = tempdir::TempDir::new("smirk_doctest").unwrap();
     /// # let path = dir.path().join("db");
@@ -118,6 +120,7 @@ impl<const DEPTH: usize, V> Persistent<DEPTH, V> {
     ///
     /// ```rust
     /// # use smirk::*;
+    /// # use element::Element;
     /// # use smirk::storage::*;
     /// # let dir = tempdir::TempDir::new("smirk_doctest").unwrap();
     /// # let path = dir.path().join("db");

@@ -1,28 +1,29 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::constants::{AGG_INSTANCES, UTXO_INPUTS, UTXO_N};
+use crate::constants::{UTXO_INPUTS, UTXO_N};
 use crate::error::Result;
-use crate::util::convert_element_to_h256;
+use crate::util::{convert_element_to_h256, convert_fr_to_u256};
 use crate::Client;
+use element::Element;
+use eth_util::Eth;
 use ethereum_types::{H160, H256, U256, U64};
 use parking_lot::RwLock;
 use secp256k1::{Message, SECP256K1};
 use sha3::{Digest, Keccak256};
 use testutil::eth::EthNode;
 use tracing::warn;
-use web3::contract::tokens::{Tokenizable, TokenizableItem, Tokenize};
+use web3::contract::tokens::{Detokenize, Tokenizable, TokenizableItem, Tokenize};
 use web3::ethabi::Token;
 use web3::futures::{Stream, StreamExt};
 use web3::signing::SecretKeyRef;
 use web3::transports::Http;
-use web3::types::FilterBuilder;
+use web3::types::{BlockNumber, FilterBuilder};
 use web3::{
     contract::Contract,
     signing::{Key, SecretKey},
     types::Address,
 };
-use zk_primitives::Element;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorSet {
@@ -37,6 +38,60 @@ pub struct Burn {
     pub kind: H256,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mint {
+    pub note_kind: Element,
+    pub amount: Element,
+}
+
+impl Tokenize for Mint {
+    fn into_tokens(self) -> Vec<Token> {
+        vec![
+            self.note_kind.to_eth_u256().into_token(),
+            self.amount.to_eth_u256().into_token(),
+        ]
+    }
+}
+
+impl Detokenize for Mint {
+    fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
+        // Handle the case where we get a single Tuple token containing the two values
+        let (note_kind, amount) = match &tokens[0] {
+            Token::Tuple(inner_tokens) => {
+                if inner_tokens.len() != 2 {
+                    return Err(web3::contract::Error::InvalidOutputType(
+                        "expected tuple with 2 elements".to_string(),
+                    ));
+                }
+                (
+                    H256::from_token(inner_tokens[0].clone())?,
+                    U256::from_token(inner_tokens[1].clone())?,
+                )
+            }
+            _ => {
+                return Err(web3::contract::Error::InvalidOutputType(
+                    "expected tuple token".to_string(),
+                ));
+            }
+        };
+
+        Ok(Mint {
+            note_kind: Element::from_be_bytes(note_kind.0),
+            amount: Element::from_u64_array(amount.0),
+        })
+    }
+}
+
+/// Represents a MintAdded event from the contract
+#[derive(Debug, Clone)]
+pub struct MintAddedEvent {
+    pub mint_hash: H256,
+    pub value: U256,
+    pub note_kind: H256,
+    pub transaction_hash: H256,
+    pub block_number: u64,
+}
+
 impl From<(H160, U256)> for Burn {
     fn from(item: (H160, U256)) -> Self {
         Self {
@@ -45,6 +100,27 @@ impl From<(H160, U256)> for Burn {
             kind: H256::zero(),
         }
     }
+}
+
+/// EVM event emitted when a burn occurs (funds are sent from the Rollup contract).
+/// Event will be triggered for burns and substituted burns. If a burn is substituted,
+/// two events will be emitted. First for the substituted burn, and then again for the refund
+/// to the substitutor.
+#[derive(Debug)]
+pub struct BurnedEvent {
+    /// The address of the token being burnt
+    pub token: Address,
+    /// The burn hash for the burn event
+    pub burn_hash: H256,
+    /// Whether the burn occurred due to a substitute
+    pub substitute: bool,
+    /// Returns whether the burn was successful, it can be unsuccessful if
+    /// IERC20(token).transfer throws an error
+    pub success: bool,
+    /// The EVM block number this event was emitted in
+    pub block_number: Option<u64>,
+    /// The EVM txn hash this event was emitted in
+    pub txn_hash: Option<H256>,
 }
 
 impl From<(H256, U256, H256)> for Burn {
@@ -184,7 +260,7 @@ impl RollupContract {
         signer: SecretKey,
     ) -> Result<Self> {
         let contract_json =
-            include_str!("../../../eth/artifacts/contracts/rollup/RollupV6.sol/RollupV6.json");
+            include_str!("../../../eth/artifacts/contracts/rollup2/RollupV1.sol/RollupV1.json");
         let contract = client.load_contract_from_str(rollup_contract_addr, contract_json)?;
 
         let domain_separator = client
@@ -212,7 +288,7 @@ impl RollupContract {
     }
 
     pub async fn from_eth_node(eth_node: &EthNode, secret_key: SecretKey) -> Result<Self> {
-        let rollup_addr = "2279b7a0a67db372996a5fab50d91eaa73d2ebe6";
+        let rollup_addr = "dc64a140aa3e981100a9beca4e685f962f0cf6c9";
         let client = Client::from_eth_node(eth_node);
         Self::load(client, rollup_addr, secret_key).await
     }
@@ -323,18 +399,20 @@ impl RollupContract {
     pub async fn verify_block(
         &self,
         proof: &[u8],
-        agg_instances: [Element; AGG_INSTANCES],
+        verification_key_hash: &Element,
         old_root: &Element,
         new_root: &Element,
-        // 6 utxo * 3 hashes per utxo
-        utxo_inputs: &[Element],
+        commit_hash: &Element,
+        // 6 utxo * 6 messages per utxo
+        utxo_messages: &[Element],
+        kzg: &[Element],
         other_hash: [u8; 32],
         height: u64,
         signatures: &[&[u8]],
         gas_per_burn_call: u128,
     ) -> Result<H256> {
         // Ensure we have the correct number of UTXO inputs
-        assert_eq!(utxo_inputs.len(), UTXO_N * UTXO_INPUTS);
+        assert_eq!(utxo_messages.len(), UTXO_N * UTXO_INPUTS);
 
         let signatures = signatures
             .iter()
@@ -352,25 +430,27 @@ impl RollupContract {
             })
             .collect::<Vec<Token>>();
 
-        let utxo_hashes = utxo_inputs
-            .iter()
-            .map(convert_element_to_h256)
-            .map(|x| Token::FixedBytes(x.as_bytes().to_vec()))
-            .collect::<Vec<Token>>();
+        let utxo_messages = utxo_messages.iter().map(convert_element_to_h256);
+        let kzg = kzg.iter().map(convert_element_to_h256);
+
+        let mut public_inputs = vec![
+            convert_element_to_h256(verification_key_hash),
+            convert_element_to_h256(old_root),
+            convert_element_to_h256(new_root),
+            convert_element_to_h256(commit_hash),
+        ];
+        public_inputs.extend(utxo_messages);
+        public_inputs.extend(kzg);
 
         let call_tx = self
             .call(
-                "verifyBlock2",
+                "verifyRollup36",
                 (
-                    web3::types::Bytes::from(proof),
-                    agg_instances.map(|x| convert_element_to_h256(&x)),
-                    convert_element_to_h256(old_root),
-                    convert_element_to_h256(new_root),
-                    Token::FixedArray(utxo_hashes),
-                    H256::from_slice(&other_hash),
                     U256::from(height),
+                    web3::types::Bytes::from(proof),
+                    public_inputs,
+                    H256::from_slice(&other_hash),
                     Token::Array(signatures),
-                    U256::from(gas_per_burn_call),
                 ),
             )
             .await?;
@@ -378,22 +458,20 @@ impl RollupContract {
         Ok(call_tx)
     }
 
-    #[tracing::instrument(err, ret, skip(self, proof))]
+    #[tracing::instrument(err, ret, skip(self))]
     pub async fn mint(
         &self,
-        proof: &[u8],
-        commitment: &Element,
+        mint_hash: &Element,
         value: &Element,
-        source: &Element,
+        note_kind: &Element,
     ) -> Result<H256> {
         let call_tx = self
             .call(
                 "mint",
                 (
-                    web3::types::Bytes::from(proof),
-                    convert_element_to_h256(commitment),
+                    convert_element_to_h256(mint_hash),
                     convert_element_to_h256(value),
-                    convert_element_to_h256(source),
+                    convert_element_to_h256(note_kind),
                 ),
             )
             .await?;
@@ -402,13 +480,12 @@ impl RollupContract {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[tracing::instrument(err, ret, skip(self, proof))]
+    #[tracing::instrument(err, ret, skip(self))]
     pub async fn mint_with_authorization(
         &self,
-        proof: &[u8],
-        commitment: &Element,
+        mint_hash: &Element,
         value: &Element,
-        source: &Element,
+        note_kind: &Element,
         from: &Address,
         // unix timestamp
         valid_after: U256,
@@ -431,10 +508,9 @@ impl RollupContract {
             .call(
                 "mintWithAuthorization",
                 (
-                    web3::types::Bytes::from(proof),
-                    convert_element_to_h256(commitment),
-                    convert_element_to_h256(value),
-                    convert_element_to_h256(source),
+                    mint_hash.to_h256(),
+                    value.to_h256(),
+                    note_kind.to_h256(),
                     web3::types::H160::from_slice(from.as_bytes()),
                     valid_after,
                     valid_before,
@@ -457,7 +533,7 @@ impl RollupContract {
         &self,
         commitment: Element,
         value: U256,
-        source: Element,
+        note_kind: Element,
         from: Address,
         valid_after: U256,
         valid_before: U256,
@@ -468,7 +544,7 @@ impl RollupContract {
         let mint_sig_digest = self.signature_msg_digest_for_mint(
             commitment,
             value,
-            source,
+            note_kind,
             from,
             valid_after,
             valid_before,
@@ -491,7 +567,7 @@ impl RollupContract {
         &self,
         commitment: Element,
         value: U256,
-        source: Element,
+        note_kind: Element,
         from: Address,
         valid_after: U256,
         valid_before: U256,
@@ -499,7 +575,7 @@ impl RollupContract {
     ) -> [u8; 32] {
         let mut data = Vec::new();
         let mint_with_authorization_typehash = Keccak256::digest(
-            "MintWithAuthorization(bytes32 commitment,bytes32 value,bytes32 source,address from,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+            "MintWithAuthorization(bytes32 commitment,bytes32 value,bytes32 kind,address from,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
                 .as_bytes(),
         );
         data.extend_from_slice(&mint_with_authorization_typehash);
@@ -507,7 +583,7 @@ impl RollupContract {
         let mut value_bytes = [0u8; 32];
         value.to_big_endian(&mut value_bytes);
         data.extend_from_slice(&value_bytes[..]);
-        data.extend_from_slice(convert_element_to_h256(&source).as_bytes());
+        data.extend_from_slice(convert_element_to_h256(&note_kind).as_bytes());
         data.extend_from_slice(H256::from(from).as_bytes());
         let mut valid_after_bytes = [0u8; 32];
         valid_after.to_big_endian(&mut valid_after_bytes);
@@ -623,8 +699,8 @@ impl RollupContract {
     }
 
     #[tracing::instrument(err, ret, skip(self))]
-    pub async fn get_mint(&self, key: &Element) -> Result<Option<U256>> {
-        let mint: U256 = self
+    pub async fn get_mint(&self, key: &Element) -> Result<Option<Mint>> {
+        let mint: Mint = self
             .client
             .query(
                 &self.contract,
@@ -636,11 +712,71 @@ impl RollupContract {
             )
             .await?;
 
-        if mint == U256::zero() {
+        // Check if the mint is "empty" (both fields are zero)
+        if mint.note_kind == Element::ZERO && mint.amount == Element::ZERO {
             return Ok(None);
         }
 
         Ok(Some(mint))
+    }
+
+    /// Gets MintAdded events for a specific mint hash
+    #[tracing::instrument(err, ret, skip(self))]
+    pub async fn get_mint_added_events(
+        &self,
+        mint_hash: &Element,
+        to_block: BlockNumber,
+    ) -> Result<Vec<MintAddedEvent>> {
+        // Create the event signature hash
+        let event_signature = H256::from_slice(
+            &Keccak256::digest(b"MintAdded(bytes32,uint256,bytes32)").as_slice()[0..32],
+        );
+
+        // Convert the mint_hash Element to H256
+        let mint_hash_h256 = convert_element_to_h256(mint_hash);
+
+        // Build the filter
+        let filter = FilterBuilder::default()
+            .address(vec![self.contract.address()])
+            .from_block(BlockNumber::Earliest)
+            .to_block(to_block)
+            .topics(
+                Some(vec![event_signature]), // Event signature
+                Some(vec![mint_hash_h256]),  // First indexed parameter (mint_hash)
+                None,                        // No third topic
+                None,                        // No fourth topic
+            )
+            .build();
+
+        // Get logs
+        let logs = self.client.client().eth().logs(filter).await?;
+
+        // Parse the logs into MintAddedEvent structs
+        let mut events = Vec::new();
+        for log in logs {
+            if log.data.0.len() >= 64
+                && log.transaction_hash.is_some()
+                && log.block_number.is_some()
+            {
+                // Extract amount (first parameter, 32 bytes)
+                let amount = U256::from_big_endian(&log.data.0[0..32]);
+
+                // Extract note_kind (second parameter, 32 bytes)
+                let mut note_kind = [0u8; 32];
+                note_kind.copy_from_slice(&log.data.0[32..64]);
+                let note_kind = H256::from(note_kind);
+
+                events.push(MintAddedEvent {
+                    mint_hash: mint_hash_h256,
+                    value: amount,
+                    note_kind,
+                    transaction_hash: log.transaction_hash.unwrap(),
+                    block_number: log.block_number.unwrap().as_u64(),
+                });
+            }
+        }
+
+        Ok(events)
     }
 
     #[tracing::instrument(err, ret, skip(self))]
@@ -661,13 +797,23 @@ impl RollupContract {
     }
 
     #[tracing::instrument(err, ret, skip(self))]
-    pub async fn substitute_burn(&self, nullifier: &Element, value: &Element) -> Result<H256> {
+    pub async fn substitute_burn(
+        &self,
+        burn_address: &Address,
+        note_kind: &Element,
+        hash: &Element,
+        amount: &Element,
+        burn_block_height: u64,
+    ) -> Result<H256> {
         let call_tx = self
             .call(
                 "substituteBurn",
                 (
-                    convert_element_to_h256(nullifier),
-                    U256::from_little_endian(&value.to_le_bytes()),
+                    *burn_address,
+                    convert_element_to_h256(note_kind),
+                    convert_element_to_h256(hash),
+                    U256::from_little_endian(&amount.to_le_bytes()),
+                    U256::from(burn_block_height),
                 ),
             )
             .await?;
@@ -676,13 +822,24 @@ impl RollupContract {
     }
 
     #[tracing::instrument(err, ret, skip(self))]
-    pub async fn was_burn_substituted(&self, nullifier: &Element) -> Result<bool> {
+    pub async fn was_burn_substituted(
+        &self,
+        burn_address: &Address,
+        note_kind: &Element,
+        hash: &Element,
+        amount: &Element,
+    ) -> Result<bool> {
         let was_substituted: bool = self
             .client
             .query(
                 &self.contract,
                 "wasBurnSubstituted",
-                (convert_element_to_h256(nullifier),),
+                (
+                    Token::Address(*burn_address),
+                    convert_element_to_h256(note_kind).into_token(),
+                    convert_element_to_h256(hash).into_token(),
+                    Token::Uint(convert_fr_to_u256(amount)),
+                ),
                 None,
                 Default::default(),
                 self.block_height.map(|x| x.into()),
@@ -690,6 +847,83 @@ impl RollupContract {
             .await?;
 
         Ok(was_substituted)
+    }
+
+    /// Gets a list of emitted Burn events with the given burn hash. There should only
+    /// be one successful event.
+    #[tracing::instrument(err, ret, skip(self))]
+    pub async fn get_burned_events(
+        &self,
+        burn_hash: &Element,
+        block_height: Option<BlockNumber>,
+    ) -> Result<Vec<BurnedEvent>> {
+        // Create the event signature hash
+        let event_signature = H256::from_slice(
+            &Keccak256::digest(b"Burned(address,bytes32,bool,bool)").as_slice()[0..32],
+        );
+
+        let burn_hash_h256 = burn_hash.to_h256();
+
+        // Build the filter
+        let filter = FilterBuilder::default()
+            .address(vec![self.contract.address()])
+            .from_block(BlockNumber::Earliest)
+            .to_block(block_height.unwrap_or(BlockNumber::Latest))
+            .topics(
+                Some(vec![event_signature]), // Event signature
+                None,                        // Don't filter by token address
+                Some(vec![burn_hash_h256]),  // Second indexed parameter (nullifier)
+                None,                        // No fourth topic
+            )
+            .build();
+
+        // Get logs
+        let logs = self.client.client().eth().logs(filter).await?;
+
+        let mut events = Vec::new();
+        for log in logs {
+            if log.topics.len() >= 3 && log.data.0.len() >= 64 {
+                // Extract token address from first topic
+                let token = Address::from_slice(&log.topics[1].as_bytes()[12..32]);
+
+                // Extract substitute (first boolean)
+                let substitute = !log.data.0[31..32].iter().all(|&b| b == 0);
+
+                // Extract success (second boolean)
+                let success = !log.data.0[63..64].iter().all(|&b| b == 0);
+
+                events.push(BurnedEvent {
+                    token,
+                    burn_hash: burn_hash_h256,
+                    substitute,
+                    success,
+                    txn_hash: log.transaction_hash,
+                    block_number: log.block_number.map(|u| u.as_u64()),
+                });
+            }
+        }
+
+        Ok(events)
+    }
+
+    /// Checks if a burn with the given nullifier was successful
+    #[tracing::instrument(err, ret, skip(self))]
+    pub async fn was_burn_successful(
+        &self,
+        burn_hash: &Element,
+        to_block: Option<BlockNumber>,
+    ) -> Result<bool> {
+        let burned_events = self.get_burned_events(burn_hash, to_block).await?;
+
+        // If there are no events, the burn didn't happen
+        if burned_events.is_empty() {
+            return Ok(false);
+        }
+
+        // Check if any of the events indicate a successful burn
+        let burn_successful = burned_events.iter().any(|event| event.success);
+
+        Ok(burn_successful)
     }
 
     #[tracing::instrument(err, ret, skip(self))]
@@ -806,15 +1040,13 @@ impl RollupContract {
     }
 
     pub fn validators_for_height(&self, height: u64) -> Vec<Address> {
-        self
-            .validator_sets
+        self.validator_sets
             .read()
             .iter()
             .filter(|v| height >= v.valid_from.as_u64())
             .last()
-            .expect("No valid validator set found. This should not be possible, unless the contract is uninitialized")
-            .validators
-            .clone()
+            .map(|vs| vs.validators.clone())
+            .unwrap_or_else(|| vec![self.signer_address])
     }
 
     #[tracing::instrument(err, ret, skip(self))]

@@ -25,3 +25,5 @@ parking_lot = { workspace = true }
 microtype = { workspace = true }
 rand_derive2 = { workspace = true }
 web3 = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }

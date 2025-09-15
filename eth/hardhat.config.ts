@@ -19,6 +19,10 @@ const config: HardhatUserConfig = {
       throwOnTransactionFailures: true,
       throwOnCallFailures: true,
       loggingEnabled: true
+    },
+    localhost: {
+      // url: 'http://localhost:8546',
+      chainId: 1337
     }
   }
 }

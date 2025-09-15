@@ -1,3 +1,4 @@
 [toolchain]
-channel = "nightly-2023-01-04"
-components = ["clippy"]
+channel = "1.88.0"
+components = ["clippy", "rustfmt", "rust-analyzer"]
+profile = "default"

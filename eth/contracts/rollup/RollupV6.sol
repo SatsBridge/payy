@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.20;
+pragma solidity ^0.8.20;
 
 import "./RollupV5.sol";
 
@@ -38,7 +38,7 @@ contract RollupV6 is RollupV5 {
         bytes32 commitment,
         bytes32 value,
         bytes32 source
-    ) public override {
+    ) public override virtual {
         if (mints[commitment] != 0) {
             revert("Mint already exists");
         }
@@ -73,7 +73,7 @@ contract RollupV6 is RollupV5 {
         uint256 v2,
         bytes32 r2,
         bytes32 s2
-    ) public override {
+    ) public override virtual {
         if (mints[commitment] != 0) {
             revert("Mint already exists");
         }
@@ -124,7 +124,7 @@ contract RollupV6 is RollupV5 {
         bytes32 value,
         bytes32 source,
         bytes32 sig
-    ) public override {
+    ) public override virtual {
         requireNotUSDCBlacklisted(to);
 
         burnVerifier.verify(
@@ -149,7 +149,7 @@ contract RollupV6 is RollupV5 {
         bytes32 value,
         bytes32 source,
         bytes32 sig
-    ) public override {
+    ) public override virtual {
         require(kind == bytes32(0), "Invalid kind");
 
         address toAddr = bytes32ToAddress(to);
@@ -175,7 +175,7 @@ contract RollupV6 is RollupV5 {
         // TODO: this could be big and use a lot of gas to set in storage, set a limit in guild
         bytes calldata routerCalldata,
         address returnAddress
-    ) public override {
+    ) public override virtual {
         require(kind == bytes32(uint256(1)), "Invalid kind");
         require(returnAddress != address(0), "Invalid return address");
         require(isRouterWhitelisted(router), "Router not whitelisted");
@@ -324,7 +324,7 @@ contract RollupV6 is RollupV5 {
         require(found, "RollupV6: Burn was not found");
     }
 
-    function substituteBurn(bytes32 nullifier, uint256 amount) public {
+    function substituteBurn(bytes32 nullifier, uint256 amount) public virtual {
         require(
             !substitutedBurns[nullifier],
             "RollupV6: Burn already substituted"
