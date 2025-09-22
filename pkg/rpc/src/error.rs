@@ -54,10 +54,10 @@ impl std::fmt::Display for TryFromHTTPError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TryFromHTTPError::NoRpcErrorExpected(output) => {
-                write!(f, "No RPC error expected: {:?}", output)
+                write!(f, "No RPC error expected: {output:?}")
             }
             TryFromHTTPError::UnknownReason(reason) => {
-                write!(f, "Unknown error reason: {}", reason)
+                write!(f, "Unknown error reason: {reason}")
             }
             TryFromHTTPError::DeserializationError => write!(f, "Failed to deserialize error data"),
             TryFromHTTPError::MissingData => write!(f, "Error data is missing"),

@@ -64,7 +64,7 @@ impl Backend for CliBackend {
             cmd.arg("--oracle_hash").arg("keccak");
         }
 
-        println!("Running command: {:?}", cmd);
+        println!("Running command: {cmd:?}");
 
         let output = cmd.output()?;
         if !output.status.success() {
@@ -115,7 +115,7 @@ impl Backend for CliBackend {
             cmd.arg("--oracle_hash").arg("keccak");
         }
 
-        println!("Running command: {:?}", cmd);
+        println!("Running command: {cmd:?}");
 
         let output = cmd.output()?;
         info!("output {:?}", output);

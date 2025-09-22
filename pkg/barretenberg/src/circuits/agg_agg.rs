@@ -69,8 +69,7 @@ impl Prove for AggAgg {
         assert_eq!(
             public_inputs.len(),
             AGG_AGG_PUBLIC_INPUTS_COUNT,
-            "Public inputs must be {} elements",
-            AGG_AGG_PUBLIC_INPUTS_COUNT
+            "Public inputs must be {AGG_AGG_PUBLIC_INPUTS_COUNT} elements"
         );
         assert_eq!(
             raw_proof.len(),

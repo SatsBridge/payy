@@ -115,7 +115,7 @@ where
         batch.put(Key::Block(KeyBlock(height)).serialize(), block.to_bytes()?);
 
         let max_height = self.get_max_height()?;
-        if max_height.map_or(true, |max_height| height > max_height) {
+        if max_height.is_none_or(|max_height| height > max_height) {
             batch.put(Key::MaxHeight.serialize(), height.to_be_bytes());
         }
 

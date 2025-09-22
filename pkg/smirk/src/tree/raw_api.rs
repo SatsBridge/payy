@@ -84,7 +84,7 @@ where
             false => unreachable!(
                 "we check if the tree contains the element earlier, so this should be impossible"
             ),
-        };
+        }
 
         Ok(())
     }

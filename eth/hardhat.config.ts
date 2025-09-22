@@ -3,7 +3,7 @@ import '@nomicfoundation/hardhat-toolbox-viem'
 import '@nomicfoundation/hardhat-ethers'
 
 const config: HardhatUserConfig = {
-  solidity: {
+`  solidity: {
     version: '0.8.20',
     settings: {
       viaIR: true,
@@ -12,7 +12,7 @@ const config: HardhatUserConfig = {
         runs: 200
       }
     }
-  },
+  },`
   networks: {
     hardhat: {
       chainId: 1337,

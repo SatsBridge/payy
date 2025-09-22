@@ -41,7 +41,7 @@ pub fn prove_proof<P: Prove>(proof_input: &P) -> Result<P::Proof> {
     let start = std::time::Instant::now();
     let proof = proof_input.prove().unwrap();
     let end = std::time::Instant::now() - start;
-    println!("Proving completed in {:?}", end);
+    println!("Proving completed in {end:?}");
     let proof_gz = compress_proof(&proof);
     println!(
         "Proof size: {:?} (compressed: {:?})",
@@ -62,7 +62,7 @@ pub fn verify_proof(proof: &impl Verify) {
         result.err()
     );
 
-    println!("Proof verification completed in {:?}", duration);
+    println!("Proof verification completed in {duration:?}");
 }
 
 pub fn prove_and_verify<P: Prove>(proof_input: &P) -> Result<P::Proof> {

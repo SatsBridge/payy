@@ -13,16 +13,16 @@ fn main() {
     }
 
     let vk_fields_path = &args[1];
-    
+
     if !Path::new(vk_fields_path).exists() {
-        eprintln!("Error: File {} does not exist", vk_fields_path);
+        eprintln!("Error: File {vk_fields_path} does not exist");
         std::process::exit(1);
     }
 
     let vk_fields_data = match fs::read(vk_fields_path) {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("Error reading file {}: {}", vk_fields_path, e);
+            eprintln!("Error reading file {vk_fields_path}: {e}");
             std::process::exit(1);
         }
     };
@@ -30,24 +30,24 @@ fn main() {
     let vk_fields: Vec<Base> = match serde_json::from_slice(&vk_fields_data) {
         Ok(fields) => fields,
         Err(e) => {
-            eprintln!("Error parsing JSON from {}: {}", vk_fields_path, e);
+            eprintln!("Error parsing JSON from {vk_fields_path}: {e}");
             std::process::exit(1);
         }
     };
 
     let verification_key = VerificationKey(vk_fields);
-    
+
     let hash = match poseidon_hash(&verification_key.0, false) {
         Ok(hash) => hash,
         Err(e) => {
-            eprintln!("Error computing Poseidon hash: {}", e);
+            eprintln!("Error computing Poseidon hash: {e}");
             std::process::exit(1);
         }
     };
 
     let hash_u256 = Element::from_base(hash).to_u256();
-    let hash_hex = format!("0x{:064x}", hash_u256);
+    let hash_hex = format!("0x{hash_u256:064x}");
 
-    println!("u256: {}", hash_u256);
-    println!("hex: {}", hash_hex);
+    println!("u256: {hash_u256}");
+    println!("hex: {hash_hex}");
 }

@@ -591,7 +591,7 @@ fn mint_with_note<'m, 't>(
                 .transaction_receipt(tx)
                 .await
                 .unwrap()
-                .map_or(true, |r| r.block_number.is_none())
+                .is_none_or(|r| r.block_number.is_none())
             {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }

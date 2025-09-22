@@ -29,7 +29,7 @@ lazy_static! {
     static ref PROGRAM_PATH: PathBuf = write_to_temp_file(PROGRAM.as_bytes(), ".json");
     static ref BYTECODE: Vec<u8> = get_bytecode_from_program(PROGRAM);
     pub static ref UTXO_VERIFICATION_KEY: VerificationKey = {
-        let mut fields = serde_json::from_slice::<Vec<Base>>(KEY_FIELDS).unwrap();
+        let fields = serde_json::from_slice::<Vec<Base>>(KEY_FIELDS).unwrap();
         VerificationKey(fields)
     };
     pub static ref UTXO_VERIFICATION_KEY_HASH: VerificationKeyHash = VerificationKeyHash(

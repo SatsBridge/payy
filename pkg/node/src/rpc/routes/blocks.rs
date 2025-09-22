@@ -227,7 +227,7 @@ pub async fn list_blocks(
 
     let (cursor, blocks) = Paginator::new(
         blocks.map(|r| {
-            let (block, metadata) = match r.map_err(node::Error::from)?.upgrade(&mut ()).unwrap() {
+            let (block, metadata) = match r?.upgrade(&mut ()).unwrap() {
                 node::BlockFormat::V1(_) => unreachable!("already upgraded"),
                 node::BlockFormat::V2(block, metadata) => (block, metadata),
             };

@@ -167,7 +167,7 @@ where
         let mut highest_block_height = None;
         for (el, meta) in elements_rolled_up_not_in_prover {
             batch.insert(*el, SmirkMetadata::inserted_in(meta.inserted_in))?;
-            if highest_block_height.map_or(true, |highest_block_height: BlockHeight| {
+            if highest_block_height.is_none_or(|highest_block_height: BlockHeight| {
                 meta.inserted_in > highest_block_height.0
             }) {
                 highest_block_height = Some(BlockHeight(meta.inserted_in));

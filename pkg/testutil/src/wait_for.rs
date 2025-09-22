@@ -37,7 +37,7 @@ pub async fn wait_for_poll_interval<F>(
         }
 
         if start.elapsed() >= timeout {
-            panic!("Timed out after waiting for {:?}", timeout);
+            panic!("Timed out after waiting for {timeout:?}");
         }
 
         sleep(poll_delay).await;

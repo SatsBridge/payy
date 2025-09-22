@@ -1044,7 +1044,7 @@ impl RollupContract {
             .read()
             .iter()
             .filter(|v| height >= v.valid_from.as_u64())
-            .last()
+            .next_back()
             .map(|vs| vs.validators.clone())
             .unwrap_or_else(|| vec![self.signer_address])
     }

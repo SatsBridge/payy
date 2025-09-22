@@ -67,8 +67,7 @@ impl Prove for AggUtxo {
         assert_eq!(
             public_inputs.len(),
             AGG_UTXO_PUBLIC_INPUTS_COUNT,
-            "Public inputs must be {} elements",
-            AGG_UTXO_PUBLIC_INPUTS_COUNT
+            "Public inputs must be {AGG_UTXO_PUBLIC_INPUTS_COUNT} elements"
         );
 
         assert_eq!(
