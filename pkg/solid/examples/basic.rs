@@ -1,10 +1,10 @@
 use futures::StreamExt;
+use solid::App;
+use solid::Solid;
 use solid::config::SolidConfig;
 use solid::event::SolidEvent;
 use solid::proposal::{Manifest, ManifestContent};
 use solid::test::app::{InsecurePeerSigner, TestApp, UncheckedPeerId as PeerId};
-use solid::App;
-use solid::Solid;
 use solid::{Peer, PeerSigner};
 use std::time::Duration;
 use std::vec;

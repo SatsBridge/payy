@@ -1,11 +1,10 @@
-import { readFile } from "fs/promises";
-import { join } from "path";
 import hre from "hardhat";
 import { encodeFunctionData } from "viem";
 import { deployBin } from "./shared";
 
-// Auto-updated by generate_fixtures.sh - do not modify manually
-const AGG_UTXO_VERIFICATION_KEY_HASH = "0x2c6c54846dc6fd4981b7d1ef31c0fa05398a1842f945918a76a06c135f708c6e";
+// Auto-updated by generate_fixturecs.sh - do not modify manually
+const AGG_AGG_VERIFICATION_KEY_HASH =
+  "0x1594fce0e59bc3785292f9ab4f5a1e45f5795b4a616aff5cdc4d32a223f69f0c";
 
 const USDC_ADDRESSES: Record<string, string> = {
   // Ethereum Mainnet
@@ -85,26 +84,10 @@ async function main(): Promise<void> {
     deployerIsProxyAdmin,
   });
 
-  const emptyMerkleTreeRootHash =
-    "0x" +
-    (
-      await readFile(
-        join(
-          __dirname,
-          "../../pkg/contracts/src/empty_merkle_tree_root_hash.txt",
-        ),
-      )
-    )
-      .toString()
-      .trimEnd();
-
   const aggregateVerifierAddr = await deployBin(
     maybeNoopVerifier("noir/agg_agg_HonkVerifier.bin"),
   );
   console.log(`AGGREGATE_VERIFIER_ADDR=${aggregateVerifierAddr}`);
-
-  const mintVerifierAddr = await deployBin("noir/mint_HonkVerifier.bin");
-  console.log(`MINT_VERIFIER_ADDR=${mintVerifierAddr}`);
 
   const rollupV1 = await hre.viem.deployContract(
     "contracts/rollup2/RollupV1.sol:RollupV1",
@@ -118,13 +101,9 @@ async function main(): Promise<void> {
       ownerAddress,
       usdcAddress,
       aggregateVerifierAddr,
-      mintVerifierAddr,
       proverAddress,
       validators,
-      emptyMerkleTreeRootHash,
-      useNoopVerifier
-        ? "0x0000000000000000000000000000000000000000000000000000000000000000"
-        : AGG_UTXO_VERIFICATION_KEY_HASH,
+      AGG_AGG_VERIFICATION_KEY_HASH,
     ],
   });
 
@@ -212,6 +191,12 @@ async function main(): Promise<void> {
     gasLimit: 1_000_000,
   });
   await res.wait();
+
+  // Deploy EIP-7702 delegate smart account implementation (meta-tx, no EntryPoint).
+  const eip7702Delegate = await hre.viem.deployContract(
+    "contracts/Eip7702SimpleAccount.sol:Eip7702SimpleAccount",
+  );
+  console.log(`EIP7702_SIMPLE_ACCOUNT_ADDR=${eip7702Delegate.address}`);
 
   console.error("All contracts deployed");
 }

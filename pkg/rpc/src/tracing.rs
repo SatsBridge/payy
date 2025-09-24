@@ -4,11 +4,11 @@ use opentelemetry_otlp::{
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
 };
 use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler};
-use sentry_tracing::{event_from_event, EventMapping};
+use sentry_tracing::{EventMapping, event_from_event};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt};
 use tracing::field::Visit;
-use tracing_subscriber::{filter::FilterFn, layer::SubscriberExt, Layer};
+use tracing_subscriber::{Layer, filter::FilterFn, layer::SubscriberExt};
 
 #[derive(
     ValueEnum, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize,

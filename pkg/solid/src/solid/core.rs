@@ -1,11 +1,11 @@
 use super::event::SolidEvent;
+use crate::ProposalAcceptSigData;
 use crate::config::SolidConfig;
 use crate::errors::{Error, Result};
 use crate::proposal::cache::ProposalCache;
 use crate::proposal::{Manifest, ProposalHeader};
 use crate::proposal::{Proposal, ProposalAccept, ProposalHash};
 use crate::traits::{App, PeerSigner};
-use crate::ProposalAcceptSigData;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -356,7 +356,7 @@ impl<A: App> SolidCore<A> {
             .unwrap_or(0);
 
         // The proposal with the highest skip at height + 1
-        let highest_next_pending = self.proposals.next_pending_proposal(0).and_then(|p| {
+        self.proposals.next_pending_proposal(0).and_then(|p| {
             // Check if the skips for the next proposal are high enough:
             //  1. network has already skipped passed this proposal, then we should ignore it (it can never be valid)
             //  2. we have skipped pass this proposal ourselves
@@ -364,9 +364,7 @@ impl<A: App> SolidCore<A> {
                 return None;
             }
             Some(p)
-        });
-
-        highest_next_pending
+        })
     }
 
     /// The current proposal we are sending accepts for, this will be either:
@@ -431,17 +429,16 @@ mod test {
     use std::time::Duration;
 
     use crate::{
-        assert_none,
+        Error, assert_none,
         config::SolidConfig,
         test::{
             app::TestApp,
             util::{
-                accept, accept_event, commit_event, core_genesis, core_genesis_with_config,
-                core_with_last_confirmed, create_manifest, hash, last_confirmed, leader,
-                manifest_at, out_of_sync_event, peer, propose_event, skips, SolidCore,
+                SolidCore, accept, accept_event, commit_event, core_genesis,
+                core_genesis_with_config, core_with_last_confirmed, create_manifest, hash,
+                last_confirmed, leader, manifest_at, out_of_sync_event, peer, propose_event, skips,
             },
         },
-        Error,
     };
 
     // Propoasl/accept numbering:
@@ -765,9 +762,11 @@ mod test {
         assert_none!(store.next_event());
 
         // Notified that peer 2 has skipped to 1.1
-        assert_none!(store
-            .receive_accept(&accept(&p_0_0, 1, leader(3), peer(2)))
-            .unwrap());
+        assert_none!(
+            store
+                .receive_accept(&accept(&p_0_0, 1, leader(3), peer(2)))
+                .unwrap()
+        );
 
         // Notified that peer 3 has skipped to 1.1, now more than >=1/3 skips seen,
         // we should send an accept for 1.1 too
@@ -858,14 +857,18 @@ mod test {
         assert_eq!(store.skip(), accept_event(&p_0_0, 3, leader(1), peer(1)));
 
         // Receive first accept, no >2/3
-        assert_none!(store
-            .receive_accept(&accept(&p_0_0, 3, leader(1), peer(2)))
-            .unwrap());
+        assert_none!(
+            store
+                .receive_accept(&accept(&p_0_0, 3, leader(1), peer(2)))
+                .unwrap()
+        );
 
         // Receive duplicate first accept, no >2/3
-        assert_none!(store
-            .receive_accept(&accept(&p_0_0, 3, leader(1), peer(2)))
-            .unwrap());
+        assert_none!(
+            store
+                .receive_accept(&accept(&p_0_0, 3, leader(1), peer(2)))
+                .unwrap()
+        );
 
         // Receive second accept, >2/3, so we should propose
         let propose = propose_event(
@@ -888,9 +891,11 @@ mod test {
         assert_none!(store.next_event());
 
         // Final accept received, but no further action required
-        assert_none!(store
-            .receive_accept(&accept(&p_0_0, skips(0), leader(4), peer(4)))
-            .unwrap());
+        assert_none!(
+            store
+                .receive_accept(&accept(&p_0_0, skips(0), leader(4), peer(4)))
+                .unwrap()
+        );
 
         // Still nothing to do
         assert_none!(store.next_event());
@@ -1067,9 +1072,11 @@ mod test {
         let p_2_0 = create_manifest(2, 0, 2, &p_1_0);
 
         // Receive accept for 1.0
-        assert_none!(store
-            .receive_accept(&accept(&p_1_0, 0, leader(1), peer(1)))
-            .unwrap());
+        assert_none!(
+            store
+                .receive_accept(&accept(&p_1_0, 0, leader(1), peer(1)))
+                .unwrap()
+        );
 
         // Not out of sync currently
         assert!(!store.is_out_of_sync());
@@ -1081,9 +1088,11 @@ mod test {
         );
 
         // Receive accept for 2.0
-        assert_none!(store
-            .receive_accept(&accept(&p_0_0, 0, leader(4), peer(2)))
-            .unwrap());
+        assert_none!(
+            store
+                .receive_accept(&accept(&p_0_0, 0, leader(4), peer(2)))
+                .unwrap()
+        );
     }
 
     #[test]
@@ -1104,9 +1113,11 @@ mod test {
         let p_1_0 = create_manifest(1, 0, 2, &p_0_0);
 
         // Receive accept for 1.0
-        assert_none!(store
-            .receive_accept(&accept(&p_1_0, 0, leader(1), peer(1)))
-            .unwrap());
+        assert_none!(
+            store
+                .receive_accept(&accept(&p_1_0, 0, leader(1), peer(1)))
+                .unwrap()
+        );
 
         // Time passes and we receive another accept for 1.0
         std::thread::sleep(store.config.missing_proposal_timeout);

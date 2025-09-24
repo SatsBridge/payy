@@ -10,6 +10,7 @@ use crate::mempool::Mempool;
 use crate::network::NetworkEvent;
 use crate::network_handler::network_handler;
 use crate::node::load::LoadedData;
+use crate::sync::SyncWorker;
 use crate::types::BlockHeight;
 use crate::{sync, util};
 use block_store::{BlockListOrder, BlockStore, StoreList};
@@ -34,8 +35,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info, instrument};
 use zk_primitives::UtxoProof;
 
@@ -140,6 +141,17 @@ pub struct NodeSharedState {
     listeners: Vec<mpsc::UnboundedSender<Arc<Block>>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ElementSeenInfo {
+    #[expect(dead_code)]
+    pub input_height: Option<BlockHeight>,
+    pub output_height: BlockHeight,
+    #[expect(dead_code)]
+    pub input_block_hash: Option<CryptoHash>,
+    pub output_block_hash: CryptoHash,
+    pub spent: bool,
+}
+
 impl Node {
     pub fn new(
         local_peer: PeerIdSigner,
@@ -209,7 +221,7 @@ impl Node {
             whitelisted_ips: config.p2p.whitelisted_ips,
         });
 
-        let sync_worker = crate::sync::SyncWorker::new(
+        let sync_worker = SyncWorker::new(
             Arc::clone(&node_shared),
             rollup_contract,
             config.sync_chunk_size,
@@ -422,12 +434,12 @@ impl NodeShared {
         })
     }
 
-    pub fn fetch_blocks_paginated(
-        &self,
-        cursor: &Option<CursorChoice<BlockHeight>>,
+    pub fn fetch_blocks_paginated<'a>(
+        &'a self,
+        cursor: &'a Option<CursorChoice<BlockHeight>>,
         order: BlockListOrder,
         limit: usize,
-    ) -> Result<impl Iterator<Item = Result<BlockFormat>> + '_> {
+    ) -> Result<impl Iterator<Item = Result<BlockFormat>> + 'a> {
         Ok(self
             .block_store
             .list_paginated(cursor, order, limit)?
@@ -450,12 +462,12 @@ impl NodeShared {
             })
     }
 
-    pub fn fetch_blocks_non_empty_paginated(
-        &self,
-        cursor: &Option<CursorChoice<BlockHeight>>,
+    pub fn fetch_blocks_non_empty_paginated<'a>(
+        &'a self,
+        cursor: &'a Option<CursorChoice<BlockHeight>>,
         order: BlockListOrder,
         limit: usize,
-    ) -> Result<impl Iterator<Item = Result<BlockFormat>> + '_> {
+    ) -> Result<impl Iterator<Item = Result<BlockFormat>> + 'a> {
         Ok(self
             .block_store
             .list_non_empty_paginated(cursor, order, limit)?
@@ -478,6 +490,27 @@ impl NodeShared {
         };
 
         self.get_block(block_height)
+    }
+
+    /// Returns info about when an element was first seen (as an output), and whether it was later
+    /// spent (seen as an input). If the element has never been seen, returns None.
+    pub(crate) fn get_element_seen_info(
+        &self,
+        element: Element,
+    ) -> Result<Option<ElementSeenInfo>> {
+        let (input_hist, output_hist) = self.block_store.get_element_history(element)?;
+        if let Some(out) = output_hist {
+            let spent = input_hist.is_some();
+            Ok(Some(ElementSeenInfo {
+                input_height: input_hist.as_ref().map(|h| h.block_height),
+                output_height: out.block_height,
+                input_block_hash: input_hist.map(|h| h.block_hash),
+                output_block_hash: out.block_hash,
+                spent,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     pub(crate) async fn commit_stream(

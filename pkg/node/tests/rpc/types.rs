@@ -62,6 +62,17 @@ pub struct ElementResponse {
     pub txn_hash: CryptoHash,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ElementsListItem {
+    pub element: Element,
+    pub height: u64,
+    #[expect(dead_code)]
+    pub root_hash: Element,
+    #[expect(dead_code)]
+    pub txn_hash: CryptoHash,
+    pub spent: bool,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ListTxnsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]

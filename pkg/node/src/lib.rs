@@ -1,6 +1,4 @@
 #![deny(clippy::disallowed_methods)]
-// needed by derivative::Derivative derive
-#![expect(clippy::needless_lifetimes)]
 
 mod block;
 mod cache;
@@ -21,6 +19,6 @@ mod utxo;
 pub use crate::block::Block;
 pub use crate::errors::*;
 pub use crate::node::*;
-pub use crate::rpc::routes::{configure_routes, State};
+pub use crate::rpc::routes::{State, configure_routes};
 pub use crate::rpc::server::create_rpc_server;
 pub use crate::rpc::stats::TxnStats;

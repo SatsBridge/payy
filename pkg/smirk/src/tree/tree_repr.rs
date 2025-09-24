@@ -1,6 +1,6 @@
 use bitvec::{prelude::Msb0, vec::BitVec};
 
-use crate::{hash::empty_tree_hash, hash_cache::HashCache, Collision};
+use crate::{Collision, hash::empty_tree_hash, hash_cache::HashCache};
 use element::Element;
 
 use super::StructName;

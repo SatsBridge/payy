@@ -14,14 +14,14 @@ use contracts::RollupContract;
 use either::Either;
 use element::Element;
 use futures::StreamExt;
-use prover::smirk_metadata::SmirkMetadata;
+use prover::{MAXIMUM_TXNS, RollupInput};
 use prover::{Prover, Transaction};
 use prover::{RollupInput, MAXIMUM_TXNS};
 use scopeguard::ScopeGuard;
 use smirk::empty_tree_hash;
-use tokio::sync::{mpsc, Mutex, Notify};
+use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::{error, info};
-use zk_primitives::AggAggProof;
+use zk_primitives::{AggAggProof, UtxoKind};
 
 pub async fn run_prover(config: &Config, node: Arc<NodeShared>) -> Result<()> {
     let (client, postgres_future) = if let Some(url) = &config.prover_database_url {
@@ -48,9 +48,13 @@ pub async fn run_prover(config: &Config, node: Arc<NodeShared>) -> Result<()> {
 
     let contracts_client =
         contracts::Client::new(&config.eth_rpc_url, config.minimum_gas_price_gwei);
-    let contract =
-        contracts::RollupContract::load(contracts_client, &config.rollup_contract_addr, secret_key)
-            .await?;
+    let contract = contracts::RollupContract::load(
+        contracts_client,
+        137,
+        &config.rollup_contract_addr,
+        secret_key,
+    )
+    .await?;
 
     let db_path = config.db_path.join("prover");
     let prover_state_db = Arc::new(ProverDb::create_or_load(&db_path)?);
@@ -143,44 +147,13 @@ where
 {
     let initial_contract_block_height = BlockHeight(contract.block_height().await?);
 
-    {
-        // Wait for node to notice it's out of sync
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        // Wait for node to sync.
-        // Trying to sync without waiting would mean invalid prover smirk tree,
-        // if the node synced with fast sync.
-        while node.is_out_of_sync() {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-
-        let mut prover_tree = notes_tree.lock().await;
-        let prover_tree = prover_tree.as_mut().unwrap();
-        let node_notes_tree = node.notes_tree().read();
-
-        let elements_rolled_up_not_in_prover =
-            node_notes_tree.tree().elements().filter(|(el, meta)| {
-                meta.inserted_in <= initial_contract_block_height.0
-                    && !prover_tree.tree().contains_element(el)
-            });
-
-        let mut batch = smirk::Batch::new();
-        let mut highest_block_height = None;
-        for (el, meta) in elements_rolled_up_not_in_prover {
-            batch.insert(*el, SmirkMetadata::inserted_in(meta.inserted_in))?;
-            if highest_block_height.is_none_or(|highest_block_height: BlockHeight| {
-                meta.inserted_in > highest_block_height.0
-            }) {
-                highest_block_height = Some(BlockHeight(meta.inserted_in));
-            }
-        }
-        prover_tree.insert_batch(batch)?;
-
-        if let Some(highest_block_height) = highest_block_height {
-            prover_state_db.set_last_seen_block(LastSeenBlock {
-                height: highest_block_height,
-                root_hash: prover_tree.tree().root_hash(),
-            })?;
-        }
+    // Wait for node to notice it's out of sync
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    // Wait for node to sync.
+    // Trying to sync without waiting would mean invalid prover smirk tree,
+    // if the node synced with fast sync.
+    while node.is_out_of_sync() {
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     let last_seen_block = prover_state_db
@@ -205,7 +178,9 @@ where
         })?;
         delete_smirk().await?;
         // Exit the process and let the supervisor restart us
-        panic!("Our tree's root hash does not match the last seen block's root hash. Please restart the prover");
+        panic!(
+            "Our tree's root hash does not match the last seen block's root hash. Please restart the prover"
+        );
     }
 
     let height = last_seen_block.height + BlockHeight(1);
@@ -318,18 +293,23 @@ where
                 agg_agg_proof.public_inputs.old_root = notes_tree.tree().root_hash();
                 agg_agg_proof.public_inputs.new_root = commit.content.state.root_hash;
 
-                let mut messages = commit
-                    .content
-                    .state
-                    .txns
-                    .iter()
-                    .flat_map(|txn| txn.public_inputs.messages.iter())
-                    .cloned()
-                    .collect::<Vec<_>>();
+                let mut messages = [Element::ZERO; 30];
+                let mut index = 0;
 
-                messages.extend(vec![Element::ZERO; 36 - messages.len()]);
+                for proof in commit.content.state.txns.iter() {
+                    let proof_messages = match proof.kind() {
+                        UtxoKind::Null | UtxoKind::Send => &[][..],
+                        UtxoKind::Mint => &proof.public_inputs.messages[..4],
+                        UtxoKind::Burn => &proof.public_inputs.messages[..],
+                    };
 
-                agg_agg_proof.public_inputs.messages = messages;
+                    for &message in proof_messages {
+                        messages[index] = message;
+                        index += 1;
+                    }
+                }
+
+                agg_agg_proof.public_inputs.messages = messages.into_iter().collect::<Vec<_>>();
 
                 agg_agg_proof
             }
@@ -540,18 +520,18 @@ mod tests {
     use std::str::FromStr;
 
     use crate::{
-        block::{BlockContent, BlockHeader, BlockState},
         Block,
+        block::{BlockContent, BlockHeader, BlockState},
     };
 
     use super::*;
-    use contracts::{util::convert_element_to_h256, SecretKey};
+    use contracts::{SecretKey, util::convert_element_to_h256};
     use doomslug::ApprovalContent;
     use primitives::peer::PeerIdSigner;
     use tempdir::TempDir;
     use testutil::{
-        eth::{EthNode, EthNodeOptions},
         ACCOUNT_1_SK,
+        eth::{EthNode, EthNodeOptions},
     };
     use zk_primitives::AggAggProof;
 

@@ -1,6 +1,6 @@
 use color_eyre::Result;
 use ethereum_types::Address;
-use secp256k1::{PublicKey, SecretKey, SECP256K1};
+use secp256k1::{PublicKey, SECP256K1, SecretKey};
 use sha3::{Digest, Keccak256};
 use std::str::FromStr;
 

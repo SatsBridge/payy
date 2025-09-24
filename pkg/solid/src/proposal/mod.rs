@@ -11,8 +11,8 @@ pub use self::hash::*;
 pub use self::header::*;
 pub use self::manifest::*;
 
-use crate::errors::Result;
 use crate::Error;
+use crate::errors::Result;
 use crate::{config::AcceptThreshold, traits::App};
 use std::collections::BTreeMap;
 

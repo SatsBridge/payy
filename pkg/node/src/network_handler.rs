@@ -29,26 +29,24 @@ async fn handle_event(
     peer: PeerId,
     event: NetworkEvent,
 ) -> color_eyre::Result<()> {
-    use NetworkEvent as NE;
-
     match event {
-        NE::Approval(approval) => node
+        NetworkEvent::Approval(approval) => node
             .receive_accept(&approval)
             .await
             .context("Accept failed")?,
 
-        NE::Block(block) => {
+        NetworkEvent::Block(block) => {
             node.receive_proposal(block)
                 .context("Failed to process block")?;
             node.ticker.tick();
         }
 
-        NE::Transaction(txn) => node
+        NetworkEvent::Transaction(txn) => node
             .receive_transaction(txn)
             .await
             .context("Transaction failed")?,
 
-        NE::SnapshotRequest(SnapshotRequest {
+        NetworkEvent::SnapshotRequest(SnapshotRequest {
             snapshot_id,
             from_height,
             to_height,
@@ -58,15 +56,15 @@ async fn handle_event(
             .await
             .context("Snapshot request failed")?,
 
-        NE::SnapshotOffer(SnapshotOffer { snapshot_id }) => node
+        NetworkEvent::SnapshotOffer(SnapshotOffer { snapshot_id }) => node
             .receive_snapshot_offer(peer, snapshot_id)
             .context("Snapshot offer failed")?,
 
-        NE::SnapshotChunk(sc) => node
+        NetworkEvent::SnapshotChunk(sc) => node
             .receive_snapshot_chunk(peer, sc)
             .context("Snapshot chunk failed")?,
 
-        NE::SnapshotAccept(SnapshotAccept {
+        NetworkEvent::SnapshotAccept(SnapshotAccept {
             snapshot_id,
             from_height,
             to_height,

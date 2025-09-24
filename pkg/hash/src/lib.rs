@@ -117,8 +117,10 @@ fn bytes_to_element(bytes: &[u8]) -> Element {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use rand::Rng;
-    use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
+    use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
 
     use super::*;
 
@@ -143,10 +145,15 @@ mod tests {
 
     #[test]
     fn hash_merge_snapshot_test() {
+        let max =
+            Element::from_str("0x30644E72E131A029B85045B68181585D2833E84879B9709143E1F593F0000000")
+                .unwrap();
         let special_cases = [
             MergeResult::new(Element::NULL_HASH, Element::NULL_HASH),
             MergeResult::new(Element::NULL_HASH, Element::ONE),
             MergeResult::new(Element::ONE, Element::NULL_HASH),
+            MergeResult::new(Element::new(10), Element::new(20)),
+            MergeResult::new(max, max),
         ];
 
         let mut rng = ChaChaRng::from_seed([0; 32]);

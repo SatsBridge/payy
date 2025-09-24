@@ -139,11 +139,11 @@ pub fn generate_note_kind_bridge_evm(chain: u64, address: H160) -> Element {
 ///
 /// An Element representing the note kind for USDC on Polygon with:
 /// - note_kind_format: 2 (ETH based bridged asset)
-/// - chain: 137 (Polygon chain ID)
+/// - chain: 137 (Polygon)
 /// - address: 0x3c499c542cef5e3811e1192ce70d8cc03d5c3359 (USDC contract address)
 #[must_use]
 pub fn bridged_polygon_usdc_note_kind() -> Element {
-    let chain = 137u64; // Polygon chain ID
+    let chain = 137u64; // Polygon chain
     let address =
         H160::from_slice(&hex::decode("3c499c542cef5e3811e1192ce70d8cc03d5c3359").unwrap());
 
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(&result_bytes[0..2], &(2u16).to_be_bytes());
 
         // Check chain is in bytes 2-10 (big endian)
-        // 137 = 0x89, so as u64 big endian = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x89]
+        // 137 (Polygon) = 0x89, so as u64 big endian = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x89]
         let expected_chain_bytes = 137u64.to_be_bytes();
         assert_eq!(&result_bytes[2..10], &expected_chain_bytes);
 

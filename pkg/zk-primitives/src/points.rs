@@ -4,6 +4,9 @@ use primitives::serde::{deserialize_base64, serialize_base64};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "ts-rs")]
+use ts_rs::TS;
+
 /// Points represents the data for a circuit that proves the number of points to give
 /// to a user based on the notes they own.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -50,6 +53,8 @@ impl Points {
 
 /// The output zk proof for a Points circuit
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct PointsProofBytes(
     #[serde(
         serialize_with = "serialize_base64",
@@ -60,6 +65,8 @@ pub struct PointsProofBytes(
 
 /// Public input for the points circuit
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct PointsPublicInput {
     /// Value of the points
     pub value: Element,
@@ -89,6 +96,8 @@ impl PointsPublicInput {
 /// Bundle of a proof and its public inputs for points. This can be used
 /// verify the proof.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct PointsProof {
     /// Proof
     pub proof: PointsProofBytes,
@@ -98,7 +107,6 @@ pub struct PointsProof {
 
 impl ToBytes for PointsProof {
     /// Convert the proof to bytes
-    #[must_use]
     fn to_bytes(&self) -> Vec<u8> {
         // TODO: move to impl detail of proving backend
         let pi = self.public_inputs.to_bytes();

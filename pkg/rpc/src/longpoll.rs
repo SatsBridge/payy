@@ -45,7 +45,7 @@ where
                 return Ok(PollData::Modified {
                     data,
                     modified_at: Some(modified_at),
-                })
+                });
             }
             Ok(None) => {}
             Err(e) => return Err(e),

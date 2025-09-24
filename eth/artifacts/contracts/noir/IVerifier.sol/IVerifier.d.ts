@@ -45,24 +45,11 @@ export interface IVerifier$Type {
 
 declare module "@nomicfoundation/hardhat-viem/types" {
   export function deployContract(
-    contractName: "IVerifier",
-    constructorArgs?: [],
-    config?: DeployContractConfig
-  ): Promise<GetContractReturnType<IVerifier$Type["abi"]>>;
-  export function deployContract(
     contractName: "contracts/noir/IVerifier.sol:IVerifier",
     constructorArgs?: [],
     config?: DeployContractConfig
   ): Promise<GetContractReturnType<IVerifier$Type["abi"]>>;
 
-  export function sendDeploymentTransaction(
-    contractName: "IVerifier",
-    constructorArgs?: [],
-    config?: SendDeploymentTransactionConfig
-  ): Promise<{
-    contract: GetContractReturnType<IVerifier$Type["abi"]>;
-    deploymentTransaction: GetTransactionReturnType;
-  }>;
   export function sendDeploymentTransaction(
     contractName: "contracts/noir/IVerifier.sol:IVerifier",
     constructorArgs?: [],
@@ -72,11 +59,6 @@ declare module "@nomicfoundation/hardhat-viem/types" {
     deploymentTransaction: GetTransactionReturnType;
   }>;
 
-  export function getContractAt(
-    contractName: "IVerifier",
-    address: Address,
-    config?: GetContractAtConfig
-  ): Promise<GetContractReturnType<IVerifier$Type["abi"]>>;
   export function getContractAt(
     contractName: "contracts/noir/IVerifier.sol:IVerifier",
     address: Address,

@@ -1,7 +1,7 @@
 use crate::code::ErrorCode;
 use actix_web::Responder;
 use actix_web::ResponseError;
-use actix_web::{http::header::ContentType, HttpResponse};
+use actix_web::{HttpResponse, http::header::ContentType};
 use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Debug;
@@ -12,10 +12,11 @@ pub type HttpResult<T> = std::result::Result<T, HTTPError>;
 /// Variant `Error` is the default error level.
 /// `Warn` is to be used for "expected" errors that we wish
 /// to avoid polluting the error logs.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Severity {
     Warn,
+    #[default]
     Error,
 }
 

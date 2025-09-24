@@ -4,21 +4,54 @@ use std::{time::Duration, time::Instant};
 
 use barretenberg::Prove;
 use burn_substitutor::BurnSubstitutor;
-use contracts::{Address, Client};
+use contracts::{Address, Client, ConfirmationType};
 use element::Element;
 use ethereum_types::{H160, U256};
 use hash::hash_merge;
 use hex::ToHex;
 use primitives::{block_height::BlockHeight, hash::CryptoHash, pagination::CursorChoice};
 use testutil::eth::{EthNode, EthNodeOptions};
-use zk_primitives::{bridged_polygon_usdc_note_kind, InputNote, Note, Utxo};
+use zk_primitives::{InputNote, Note, Utxo, bridged_polygon_usdc_note_kind};
 
 use crate::rpc::{
-    burn, mint, mint_with_note, rollup_contract, usdc_contract, ElementResponse, ListBlocksOrder,
-    ListBlocksQuery, ListTxnOrder, ListTxnsQuery, ServerConfig,
+    ElementResponse, ListBlocksOrder, ListBlocksQuery, ListTxnOrder, ListTxnsQuery, ServerConfig,
+    burn, mint, mint_with_note, rollup_contract, usdc_contract,
 };
 
 use super::Server;
+
+fn extract_error_code(err: &serde_json::Value) -> String {
+    let error_obj = err.get("error").expect("expected error object in response");
+
+    let primary_code = error_obj
+        .get("code")
+        .and_then(|code| code.as_str())
+        .unwrap_or_default();
+
+    if primary_code != "bad-request" {
+        return primary_code.to_owned();
+    }
+
+    error_obj
+        .get("details")
+        .and_then(|details| details.get("code"))
+        .and_then(|code| code.as_str())
+        .map(|code| code.to_owned())
+        .or_else(|| {
+            error_obj
+                .get("reason")
+                .and_then(|reason| reason.as_str())
+                .map(|reason| reason.to_owned())
+        })
+        .or_else(|| {
+            error_obj
+                .get("data")
+                .and_then(|data| data.get("code"))
+                .and_then(|code| code.as_str())
+                .map(|code| code.to_owned())
+        })
+        .unwrap_or_else(|| primary_code.to_owned())
+}
 
 macro_rules! expect_root_hash {
     ($server:expr, $root_hash:expr) => {
@@ -29,6 +62,20 @@ macro_rules! expect_root_hash {
         }
     };
 }
+
+const ALLOWED_DUPLICATE_CODES: &[&str] = &[
+    "commitment-already-pending",
+    "duplicate-output-commitments",
+    "duplicate-input-commitments",
+    "already-exists",
+];
+
+const ALLOWED_DUPLICATE_INPUT_CODES: &[&str] = &[
+    "commitment-already-pending",
+    "duplicate-input-commitments",
+    "input-commitments-not-found",
+    "already-exists",
+];
 
 #[tokio::test(flavor = "multi_thread")]
 async fn mint_transaction_not_in_contract() {
@@ -63,6 +110,7 @@ async fn mint_transaction_not_in_contract() {
                 .wait_for_confirm(
                     usdc.approve(H160::from_low_u64_be(1), 1).await.unwrap(),
                     Duration::from_secs(1),
+                    ConfirmationType::Latest,
                 )
                 .await
                 .unwrap();
@@ -70,6 +118,7 @@ async fn mint_transaction_not_in_contract() {
                 .wait_for_confirm(
                     usdc.approve(H160::from_low_u64_be(1), 1).await.unwrap(),
                     Duration::from_secs(1),
+                    ConfirmationType::Latest,
                 )
                 .await
                 .unwrap();
@@ -159,7 +208,7 @@ async fn mint_transaction_only() {
         expect_root_hash!(
             server,
             expect_test::expect![[r#"
-                0xfe778a2dc17f3bab32e3d6d04b04a31aafe03bedc4bf48460e5f5d375d4565c
+                0xea000ebbc4e827874e8f3743b6c68765ea7d513731625f595139bf56381827
             "#]]
         );
     }
@@ -189,7 +238,8 @@ async fn mint_and_transfer_alice_to_bob() {
     let bob_pk = Element::new(0xB0B);
     let bob_address = hash_merge([bob_pk, Element::ZERO]);
     let bob_note = Note {
-        kind: bridged_polygon_usdc_note_kind(),
+        kind: Element::new(2),
+        contract: bridged_polygon_usdc_note_kind(),
         address: bob_address,
         psi: Element::new(0),
         value: Element::new(100),
@@ -209,7 +259,7 @@ async fn mint_and_transfer_alice_to_bob() {
     expect_root_hash!(
         server,
         expect_test::expect![[r#"
-            0x80a01f23a96c1ef3332750578b4178f4d3bc4dca3d032dd949911cf37f50215
+            0xf478b616bd7df6d0443336bf26784eeefb226444106ddb5135c58cdc6927e99
         "#]]
     );
 }
@@ -265,29 +315,31 @@ async fn double_spend() {
 
     match (resp_1, resp_2) {
         (Ok(_), Err(err)) => {
-            assert_eq!(
-                err.get("error").unwrap().get("code").unwrap(),
-                &serde_json::Value::String("not-found".to_owned())
+            let code = extract_error_code(&err);
+            assert!(
+                ALLOWED_DUPLICATE_INPUT_CODES.contains(&code.as_str()),
+                "unexpected error code {code}"
             );
 
             expect_root_hash!(
                 server,
                 expect_test::expect![[r#"
-                    0x80a01f23a96c1ef3332750578b4178f4d3bc4dca3d032dd949911cf37f50215
+                    0xf478b616bd7df6d0443336bf26784eeefb226444106ddb5135c58cdc6927e99
                 "#]]
             );
         }
         (Err(err), Ok(_)) => {
-            assert_eq!(
-                err.get("error").unwrap().get("code").unwrap(),
-                &serde_json::Value::String("not-found".to_owned())
+            let code = extract_error_code(&err);
+            assert!(
+                ALLOWED_DUPLICATE_INPUT_CODES.contains(&code.as_str()),
+                "unexpected error code {code}"
             );
 
             expect_root_hash!(
                 server,
                 expect_test::expect![[r#"
-                0x27f678396a929359e8e353d240d8ff309ab67d5019f32d634df05f7fd933fcc8
-            "#]]
+                    0x27a9c15038cc9786757ea83814c73e70781f481d2504ca845cc1a5ba42ab8f11
+                "#]]
             );
         }
         (Ok(_), Ok(_)) => {
@@ -296,6 +348,184 @@ async fn double_spend() {
         (Err(_), Err(_)) => {
             panic!("Expected one of the transactions to succeed, got Err on both");
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn send_transaction_with_duplicate_inputs_is_rejected() {
+    let eth_node = EthNode::default().run_and_deploy().await;
+    let server =
+        Server::setup_and_wait(ServerConfig::single_node(false), Arc::clone(&eth_node)).await;
+    let rollup = rollup_contract(server.rollup_contract_addr, &eth_node).await;
+    let usdc = usdc_contract(&rollup, &eth_node).await;
+
+    let alice_pk = Element::new(0xA11CE);
+    let alice_address = hash_merge([alice_pk, Element::ZERO]);
+    let (alice_note, eth_tx, rpc_tx) = mint(
+        &rollup,
+        &usdc,
+        &server,
+        alice_address,
+        Element::from(100u64),
+        Element::ZERO,
+    );
+    eth_tx.await.unwrap();
+    rpc_tx.await.unwrap();
+
+    let bob_pk = Element::new(0xB0B);
+    let bob_address = hash_merge([bob_pk, Element::ZERO]);
+    let duplicate_output = Note::new_with_psi(bob_address, Element::from(200u64), Element::ZERO);
+
+    let input_note = InputNote::new(alice_note.clone(), alice_pk);
+    let utxo = Utxo::new_send(
+        [input_note.clone(), input_note.clone()],
+        [duplicate_output, Note::padding_note()],
+    );
+    let proof = utxo.prove().unwrap();
+
+    let res = server.transaction(&proof).await;
+    match res {
+        Ok(_) => panic!("duplicate inputs should be rejected"),
+        Err(err) => {
+            assert_eq!(extract_error_code(&err), "duplicate-input-commitments");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_transactions_with_duplicate_output_should_conflict() {
+    let eth_node = EthNode::default().run_and_deploy().await;
+    let server =
+        Server::setup_and_wait(ServerConfig::single_node(false), Arc::clone(&eth_node)).await;
+    let rollup = rollup_contract(server.rollup_contract_addr, &eth_node).await;
+    let usdc = usdc_contract(&rollup, &eth_node).await;
+
+    let alice_pk = Element::new(0xA11CE);
+    let alice_address = hash_merge([alice_pk, Element::ZERO]);
+    let (alice_note, alice_eth_tx, alice_rpc_tx) = mint(
+        &rollup,
+        &usdc,
+        &server,
+        alice_address,
+        Element::from(100u64),
+        Element::ZERO,
+    );
+
+    let charlie_pk = Element::new(0xC0FFEE);
+    let charlie_address = hash_merge([charlie_pk, Element::ZERO]);
+    let (charlie_note, charlie_eth_tx, charlie_rpc_tx) = mint(
+        &rollup,
+        &usdc,
+        &server,
+        charlie_address,
+        Element::from(100u64),
+        Element::from(1u64),
+    );
+
+    alice_eth_tx.await.unwrap();
+    alice_rpc_tx.await.unwrap();
+    charlie_eth_tx.await.unwrap();
+    charlie_rpc_tx.await.unwrap();
+
+    let bob_pk = Element::new(0xB0B);
+    let bob_address = hash_merge([bob_pk, Element::ZERO]);
+    let duplicated_output = Note::new_with_psi(bob_address, Element::from(100u64), Element::ZERO);
+
+    let alice_input = InputNote::new(alice_note.clone(), alice_pk);
+    let charlie_input = InputNote::new(charlie_note.clone(), charlie_pk);
+
+    let utxo_1 = Utxo::new_send(
+        [alice_input.clone(), InputNote::padding_note()],
+        [duplicated_output.clone(), Note::padding_note()],
+    );
+    let utxo_2 = Utxo::new_send(
+        [charlie_input.clone(), InputNote::padding_note()],
+        [duplicated_output.clone(), Note::padding_note()],
+    );
+
+    let proof_1 = utxo_1.prove().unwrap();
+    let proof_2 = utxo_2.prove().unwrap();
+
+    let (res_1, res_2) = tokio::join!(server.transaction(&proof_1), server.transaction(&proof_2),);
+
+    match (res_1, res_2) {
+        (Ok(_), Err(err)) | (Err(err), Ok(_)) => {
+            let code = extract_error_code(&err);
+            assert!(
+                ALLOWED_DUPLICATE_CODES.contains(&code.as_str()),
+                "unexpected error code {code}"
+            );
+        }
+        (Err(err1), Err(err2)) => {
+            let code1 = extract_error_code(&err1);
+            let code2 = extract_error_code(&err2);
+
+            assert!(ALLOWED_DUPLICATE_CODES.contains(&code1.as_str()));
+            assert!(ALLOWED_DUPLICATE_CODES.contains(&code2.as_str()));
+        }
+        (Ok(_), Ok(_)) => panic!("both transactions with duplicate outputs succeeded unexpectedly"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_transactions_with_duplicate_input_should_conflict() {
+    let eth_node = EthNode::default().run_and_deploy().await;
+    let server =
+        Server::setup_and_wait(ServerConfig::single_node(false), Arc::clone(&eth_node)).await;
+    let rollup = rollup_contract(server.rollup_contract_addr, &eth_node).await;
+    let usdc = usdc_contract(&rollup, &eth_node).await;
+
+    let alice_pk = Element::new(0xA11CE);
+    let alice_address = hash_merge([alice_pk, Element::ZERO]);
+    let (alice_note, alice_eth_tx, alice_rpc_tx) = mint(
+        &rollup,
+        &usdc,
+        &server,
+        alice_address,
+        Element::from(100u64),
+        Element::ZERO,
+    );
+
+    alice_eth_tx.await.unwrap();
+    alice_rpc_tx.await.unwrap();
+
+    let bob_pk = Element::new(0xB0B);
+    let bob_address = hash_merge([bob_pk, Element::ZERO]);
+    let bob_note_1 = Note::new_with_psi(bob_address, Element::from(100u64), Element::ZERO);
+    let bob_note_2 = Note::new_with_psi(bob_address, Element::from(100u64), Element::from(1u64));
+
+    let alice_input = InputNote::new(alice_note.clone(), alice_pk);
+
+    let utxo_1 = Utxo::new_send(
+        [alice_input.clone(), InputNote::padding_note()],
+        [bob_note_1, Note::padding_note()],
+    );
+    let utxo_2 = Utxo::new_send(
+        [alice_input.clone(), InputNote::padding_note()],
+        [bob_note_2, Note::padding_note()],
+    );
+
+    let proof_1 = utxo_1.prove().unwrap();
+    let proof_2 = utxo_2.prove().unwrap();
+
+    let (res_1, res_2) = tokio::join!(server.transaction(&proof_1), server.transaction(&proof_2),);
+
+    match (res_1, res_2) {
+        (Ok(_), Err(err)) | (Err(err), Ok(_)) => {
+            let code = extract_error_code(&err);
+            assert!(
+                ALLOWED_DUPLICATE_INPUT_CODES.contains(&code.as_str()),
+                "unexpected error code {code}"
+            );
+        }
+        (Err(err1), Err(err2)) => {
+            let code1 = extract_error_code(&err1);
+            let code2 = extract_error_code(&err2);
+
+            assert!(ALLOWED_DUPLICATE_INPUT_CODES.contains(&code1.as_str()));
+            assert!(ALLOWED_DUPLICATE_INPUT_CODES.contains(&code2.as_str()));
+        }
+        (Ok(_), Ok(_)) => panic!("both transactions with duplicate inputs succeeded unexpectedly"),
     }
 }
 
@@ -384,6 +614,7 @@ async fn substitute_burn_to_address() {
 
     let mut burn_substitutor = BurnSubstitutor::new(
         rollup.clone(),
+        usdc.clone(),
         server
             .base_url()
             .to_string()
@@ -490,8 +721,61 @@ async fn double_mint() {
     expect_root_hash!(
         server,
         expect_test::expect![[r#"
-            0xfe778a2dc17f3bab32e3d6d04b04a31aafe03bedc4bf48460e5f5d375d4565c
+            0xea000ebbc4e827874e8f3743b6c68765ea7d513731625f595139bf56381827
         "#]]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn double_mint_same_mint_hash_different_address() {
+    let eth_node = EthNode::default().run_and_deploy().await;
+
+    let server =
+        super::Server::setup_and_wait(ServerConfig::single_node(false), Arc::clone(&eth_node))
+            .await;
+
+    let rollup = rollup_contract(server.rollup_contract_addr, &eth_node).await;
+
+    let alice_pk = Element::new(0xA11CE);
+    let alice_address = hash::hash_merge([alice_pk, Element::ZERO]);
+
+    let bob_pk = Element::new(0xB0B);
+    let bob_address = hash::hash_merge([bob_pk, Element::ZERO]);
+
+    let psi = Element::ZERO;
+    let value = Element::from(100u64);
+    let note_kind = bridged_polygon_usdc_note_kind();
+
+    // Compute mint_hash (same for both since same psi)
+    let mint_hash = hash::hash_merge([psi, Element::ZERO]);
+
+    // Submit to EVM
+    rollup.mint(&mint_hash, &value, &note_kind).await.unwrap();
+
+    // Mint note A for Alice
+    let alice_note = Note::new_with_psi(alice_address, value, psi);
+    let utxo_a = Utxo::new_mint([alice_note.clone(), Note::padding_note()]);
+    let proof_a = utxo_a.prove().unwrap();
+    let _tx_a = server.transaction(&proof_a).await.unwrap();
+
+    // Mint note B for Bob with same psi
+    let bob_note = Note::new_with_psi(bob_address, value, psi);
+    let utxo_b = Utxo::new_mint([bob_note.clone(), Note::padding_note()]);
+    let proof_b = utxo_b.prove().unwrap();
+    let tx_b_err = server.transaction(&proof_b).await.unwrap_err();
+    assert_eq!(
+        tx_b_err.get("error").unwrap().get("reason").unwrap(),
+        &serde_json::Value::String("mint-hash-already-exists".to_owned())
+    );
+
+    // Check only one note was minted
+    let alice_element = server.element(alice_note.commitment()).await.unwrap();
+    assert_eq!(alice_element.element, alice_note.commitment());
+
+    let bob_element_err = server.element(bob_note.commitment()).await.unwrap_err();
+    assert_eq!(
+        bob_element_err.get("error").unwrap().get("reason").unwrap(),
+        &serde_json::Value::String("element-not-found".to_owned())
     );
 }
 
@@ -714,7 +998,7 @@ async fn query_transactions() {
     expect_root_hash!(
         server,
         expect_test::expect![[r#"
-            0x139fcd3f24dd6532ed566bd41a90cb6c89512400731ed0f9e1222603817971ea
+            0xdc8048c64aab47beea9e3d82c8f7ed835748fd9cd975252e6fae7a7a489fe3a
         "#]]
     );
 }
@@ -939,7 +1223,7 @@ async fn query_blocks() {
     expect_root_hash!(
         server,
         expect_test::expect![[r#"
-            0x139fcd3f24dd6532ed566bd41a90cb6c89512400731ed0f9e1222603817971ea
+            0xdc8048c64aab47beea9e3d82c8f7ed835748fd9cd975252e6fae7a7a489fe3a
         "#]]
     );
 }

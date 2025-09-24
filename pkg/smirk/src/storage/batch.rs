@@ -8,13 +8,13 @@ use rocksdb::WriteBatch;
 use wire_message::WireMessage;
 
 use crate::{
-    storage::format::{ValueFormat, ValueV2},
     Batch,
+    storage::format::{ValueFormat, ValueV2},
 };
 
 use super::{
-    format::{KeyFormat, KeyV2},
     Error, Persistent,
+    format::{KeyFormat, KeyV2},
 };
 
 impl<const DEPTH: usize, V> Persistent<DEPTH, V> {

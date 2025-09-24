@@ -1,4 +1,4 @@
-use crate::{tree, Batch, Collision, CollisionError};
+use crate::{Batch, Collision, CollisionError, tree};
 
 impl<const DEPTH: usize, V> Batch<DEPTH, V> {
     /// Merge `other` into `self`

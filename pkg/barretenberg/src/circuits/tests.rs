@@ -1,14 +1,12 @@
 use element::Element;
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 use std::io::Write;
 use zk_primitives::{
-    get_address_for_private_key, AggAgg, AggUtxo, InputNote, MerklePath, Note, ToBytes, Utxo,
-    UtxoKind, UtxoProof, UtxoProofBundleWithMerkleProofs,
+    AggAgg, AggUtxo, InputNote, MerklePath, Note, ToBytes, Utxo, UtxoKind, UtxoProof,
+    UtxoProofBundleWithMerkleProofs, bridged_polygon_usdc_note_kind, get_address_for_private_key,
 };
 
 use crate::{Prove, Result, Verify};
-
-use super::AGG_UTXO_VERIFICATION_KEY_HASH;
 
 pub fn get_keypair(key: u64) -> (Element, Element) {
     let secret_key = Element::new(key);
@@ -17,14 +15,15 @@ pub fn get_keypair(key: u64) -> (Element, Element) {
 }
 
 pub fn send_note(value: u64, address: Element, psi: u64) -> Note {
-    note(value, address, psi, 1)
+    note(value, address, psi, bridged_polygon_usdc_note_kind())
 }
 
-pub fn note(value: u64, address: Element, psi: u64, kind: u64) -> Note {
+pub fn note(value: u64, address: Element, psi: u64, contract: Element) -> Note {
     Note {
+        kind: Element::new(2),
         value: Element::new(value),
         address,
-        kind: Element::new(kind),
+        contract,
         psi: Element::new(psi),
     }
 }
@@ -275,10 +274,7 @@ fn test_agg_agg() {
     );
     let agg_utxo2_proof = prove_and_verify(&agg_utxo2).unwrap();
 
-    let agg_agg = AggAgg::new(
-        [agg_utxo1_proof, agg_utxo2_proof],
-        Element::from_base(AGG_UTXO_VERIFICATION_KEY_HASH.0),
-    );
+    let agg_agg = AggAgg::new([agg_utxo1_proof, agg_utxo2_proof]);
 
     prove_and_verify(&agg_agg).unwrap();
 }

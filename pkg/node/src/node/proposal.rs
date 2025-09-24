@@ -5,11 +5,11 @@ use primitives::hash::CryptoHash;
 use tracing::{info, instrument, warn};
 
 use crate::{
+    BlockFormat, Error, Mode, NodeShared, Result,
     block::{Block, BlockContent, BlockHeader, BlockState},
     network::NetworkEvent,
     node::block_format::BlockMetadata,
     types::BlockHeight,
-    BlockFormat, Error, Mode, NodeShared, Result,
 };
 
 impl NodeShared {
@@ -63,7 +63,9 @@ impl NodeShared {
                 .tree()
                 .contains_element(&input_commitment)
             {
-                panic!("Double-spend detected -> input note NOT in tree. This should never happen, this should have been caught before commit");
+                panic!(
+                    "Double-spend detected -> input note NOT in tree. This should never happen, this should have been caught before commit"
+                );
             }
         }
 

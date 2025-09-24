@@ -2,4 +2,4 @@
 pub const UTXO_N: usize = 6;
 
 /// Number of inputs per UTXO
-pub const UTXO_INPUTS: usize = 6;
+pub const UTXO_INPUTS: usize = 5;

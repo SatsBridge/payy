@@ -2,8 +2,8 @@ use wire_message::WireMessage;
 
 use super::Result;
 use crate::{
-    keys::{self, BlockListOrder, StoreKey},
     Block, BlockStore, Error, StoreList,
+    keys::{self, BlockListOrder, StoreKey},
 };
 
 pub(crate) const LATEST_VERSION: u32 = 1;

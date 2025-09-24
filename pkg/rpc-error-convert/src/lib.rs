@@ -1,9 +1,9 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
-    parse_macro_input, Attribute, Data, DeriveInput, Fields, Lit, Meta, NestedMeta, Variant,
+    Attribute, Data, DeriveInput, Fields, Lit, Meta, NestedMeta, Variant, parse_macro_input,
 };
 
 /// Derive macro for implementing `From<Error>` for HTTPError and `TryFrom<HTTPError>` for Error
@@ -20,6 +20,9 @@ pub fn derive_http_error(input: TokenStream) -> TokenStream {
         Data::Enum(data_enum) => &data_enum.variants,
         _ => panic!("HTTPErrorConversion can only be derived for enums"),
     };
+
+    // Generate data structures for named fields and multiple unnamed fields
+    let data_structs = generate_data_structs(variants, enum_name);
 
     // Generate the From<Error> implementation
     let match_arms_to_http = variants.iter().map(|variant| {
@@ -43,14 +46,11 @@ pub fn derive_http_error(input: TokenStream) -> TokenStream {
                     }
                 }
                 Fields::Unnamed(fields) => {
-                    // For tuple variants with a single field, pass that field as data
                     if fields.unnamed.len() == 1 {
-                        // Use a reference pattern to avoid moving err
+                        // Single unnamed field - pass directly as before
                         quote! {
                             #enum_name::#variant_name(ref data) => {
-                                // Clone only the data
                                 let data_clone = data.clone();
-
                                 HTTPError::new(
                                     #error_code,
                                     #error_code_str,
@@ -60,26 +60,46 @@ pub fn derive_http_error(input: TokenStream) -> TokenStream {
                             },
                         }
                     } else {
-                        // For tuple variants with multiple fields, we can't extract the data directly
+                        // Multiple unnamed fields - create tuple struct
+                        let data_struct_name = format_ident!("{}Data", variant_name);
+                        let field_names: Vec<_> = (0..fields.unnamed.len())
+                            .map(|i| format_ident!("field_{}", i))
+                            .collect();
+
                         quote! {
-                            #enum_name::#variant_name(..) => HTTPError::new(
-                                #error_code,
-                                #error_code_str,
-                                Some(err.into()),
-                                None::<()>,
-                            ),
+                            #enum_name::#variant_name(#(ref #field_names),*) => {
+                                let data = #data_struct_name(#(#field_names.clone()),*);
+                                HTTPError::new(
+                                    #error_code,
+                                    #error_code_str,
+                                    Some(err.into()),
+                                    Some(data),
+                                )
+                            },
                         }
                     }
                 }
-                Fields::Named(_) => {
-                    // For named fields, we can't directly extract a data structure
+                Fields::Named(fields) => {
+                    // Named fields - create struct with Data suffix
+                    let data_struct_name = format_ident!("{}Data", variant_name);
+                    let field_names: Vec<_> = fields
+                        .named
+                        .iter()
+                        .map(|f| f.ident.as_ref().unwrap())
+                        .collect();
+
                     quote! {
-                        #enum_name::#variant_name { .. } => HTTPError::new(
-                            #error_code,
-                            #error_code_str,
-                            Some(err.into()),
-                            None::<()>,
-                        ),
+                        #enum_name::#variant_name { #(ref #field_names),* } => {
+                            let data = #data_struct_name {
+                                #(#field_names: #field_names.clone()),*
+                            };
+                            HTTPError::new(
+                                #error_code,
+                                #error_code_str,
+                                Some(err.into()),
+                                Some(data),
+                            )
+                        },
                     }
                 }
             }
@@ -113,12 +133,11 @@ pub fn derive_http_error(input: TokenStream) -> TokenStream {
                     })
                 }
                 Fields::Unnamed(fields) => {
-                    // For tuple variants with a single field, try to deserialize the data
                     if fields.unnamed.len() == 1 {
+                        // Single unnamed field - deserialize directly
                         Some(quote! {
                             #error_code_str => {
                                 if let Some(data) = http_error.data {
-                                    // Try to deserialize the data
                                     let data = serde_json::from_value(data)
                                         .map_err(|_| TryFromHTTPError::DeserializationError)?;
                                     Ok(#enum_name::#variant_name(data))
@@ -128,13 +147,43 @@ pub fn derive_http_error(input: TokenStream) -> TokenStream {
                             },
                         })
                     } else {
-                        // For tuple variants with multiple fields, we can't reconstruct the error
-                        None
+                        // Multiple unnamed fields - deserialize from tuple struct
+                        let data_struct_name = format_ident!("{}Data", variant_name);
+                        let field_bindings: Vec<_> = (0..fields.unnamed.len())
+                            .map(|i| format_ident!("field_{}", i))
+                            .collect();
+
+                        Some(quote! {
+                            #error_code_str => {
+                                if let Some(data) = http_error.data {
+                                    let #data_struct_name(#(#field_bindings),*) = serde_json::from_value(data)
+                                        .map_err(|_| TryFromHTTPError::DeserializationError)?;
+                                    Ok(#enum_name::#variant_name(#(#field_bindings),*))
+                                } else {
+                                    Err(TryFromHTTPError::MissingData)
+                                }
+                            },
+                        })
                     }
                 }
-                Fields::Named(_) => {
-                    // For named fields, we can't reconstruct the error
-                    None
+                Fields::Named(fields) => {
+                    // Named fields - deserialize from generated struct
+                    let data_struct_name = format_ident!("{}Data", variant_name);
+                    let field_names: Vec<_> = fields.named.iter()
+                        .map(|f| f.ident.as_ref().unwrap())
+                        .collect();
+
+                    Some(quote! {
+                        #error_code_str => {
+                            if let Some(data) = http_error.data {
+                                let #data_struct_name { #(#field_names),* } = serde_json::from_value(data)
+                                    .map_err(|_| TryFromHTTPError::DeserializationError)?;
+                                Ok(#enum_name::#variant_name { #(#field_names),* })
+                            } else {
+                                Err(TryFromHTTPError::MissingData)
+                            }
+                        },
+                    })
                 }
             }
         } else {
@@ -144,6 +193,8 @@ pub fn derive_http_error(input: TokenStream) -> TokenStream {
 
     // Add a derive(Clone) requirement comment to help users
     let output = quote! {
+        #data_structs
+
         // Note: All data types used in tuple variants must implement Clone
         impl From<#enum_name> for HTTPError {
             fn from(err: #enum_name) -> Self {
@@ -171,13 +222,12 @@ pub fn derive_http_error(input: TokenStream) -> TokenStream {
 
             fn try_from(error_output: ErrorOutput) -> Result<Self, Self::Error> {
                 // Create an HTTPError from the ErrorOutput
-                let http_error = HTTPError {
-                    code: error_output.error.code,
-                    reason: error_output.error.reason,
-                    source: None,
-                    data: error_output.error.data,
-                    severity: ::rpc::error::Severity::Error
-                };
+                let http_error = HTTPError::new(
+                    error_output.error.code,
+                    &error_output.error.reason,
+                    None,
+                    error_output.error.data,
+                );
 
                 // Use the existing TryFrom<HTTPError> implementation
                 Self::try_from(http_error)
@@ -210,6 +260,70 @@ fn find_http_error_attr(variant: &Variant) -> Option<(proc_macro2::TokenStream, 
         }
     }
     None
+}
+
+// Helper function to generate data structures for named and multiple unnamed fields
+fn generate_data_structs(
+    variants: &syn::punctuated::Punctuated<Variant, syn::token::Comma>,
+    _enum_name: &syn::Ident,
+) -> proc_macro2::TokenStream {
+    let structs = variants.iter().filter_map(|variant| {
+        let variant_name = &variant.ident;
+        let data_struct_name = format_ident!("{}Data", variant_name);
+
+        match &variant.fields {
+            Fields::Named(fields) => {
+                // Generate struct with named fields
+                let field_definitions: Vec<_> = fields
+                    .named
+                    .iter()
+                    .map(|f| {
+                        let field_name = &f.ident;
+                        let field_type = &f.ty;
+                        let field_attrs = &f.attrs;
+
+                        // Extract doc comments from field attributes
+                        let doc_attrs: Vec<_> = field_attrs
+                            .iter()
+                            .filter(|attr| attr.path.is_ident("doc"))
+                            .collect();
+
+                        quote! {
+                            #(#doc_attrs)*
+                            pub #field_name: #field_type
+                        }
+                    })
+                    .collect();
+
+                let struct_doc = format!("Data structure for {variant_name} error variant");
+
+                Some(quote! {
+                    #[doc = #struct_doc]
+                    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+                    pub struct #data_struct_name {
+                        #(#field_definitions),*
+                    }
+                })
+            }
+            Fields::Unnamed(fields) if fields.unnamed.len() > 1 => {
+                // Generate tuple struct for multiple unnamed fields
+                let field_types: Vec<_> = fields.unnamed.iter().map(|f| &f.ty).collect();
+                let struct_doc =
+                    format!("Data structure for {variant_name} error variant (tuple fields)");
+
+                Some(quote! {
+                    #[doc = #struct_doc]
+                    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+                    pub struct #data_struct_name(#(pub #field_types),*);
+                })
+            }
+            _ => None,
+        }
+    });
+
+    quote! {
+        #(#structs)*
+    }
 }
 
 // Helper function to extract string from attribute

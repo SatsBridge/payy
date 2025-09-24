@@ -71,7 +71,6 @@ impl SignatureProof {}
 
 impl ToBytes for SignatureProof {
     /// Convert the signature proof to a bytes vector
-    #[must_use]
     fn to_bytes(&self) -> Vec<u8> {
         // TODO: move to impl detail of proving backend
         let pi = self.public_inputs.to_bytes();

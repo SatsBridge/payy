@@ -1,6 +1,6 @@
-use crate::{hash::CryptoHash, sig::Signature};
+use crate::{hash::CryptoHash, sig::Signature, u256::U256};
 use borsh::{BorshDeserialize, BorshSerialize};
-use secp256k1::{Message, PublicKey, SecretKey, SECP256K1};
+use secp256k1::{Message, PublicKey, SECP256K1, SecretKey};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha3::{Digest, Keccak256};
 use std::{fmt::Display, str::FromStr};
@@ -55,8 +55,8 @@ impl Address {
         self.0.to_vec()
     }
 
-    pub fn to_u256(&self) -> crate::u256::U256 {
-        crate::u256::U256::from_little_endian(&self.0)
+    pub fn to_u256(&self) -> U256 {
+        U256::from_little_endian(&self.0)
     }
 }
 

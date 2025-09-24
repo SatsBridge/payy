@@ -1,5 +1,5 @@
 use super::{error::StructName, tree_repr::Change};
-use crate::{hash_cache::HashCache, Collision, Tree};
+use crate::{Collision, Tree, hash_cache::HashCache};
 use element::Element;
 
 impl<const DEPTH: usize, V, C> Tree<DEPTH, V, C>
@@ -51,7 +51,9 @@ where
             .iter()
             .find(|e| !self.entries.contains_key(e))
         {
-            todo!("return error that we can't remove this element because it's not in tree {element:?}");
+            todo!(
+                "return error that we can't remove this element because it's not in tree {element:?}"
+            );
         }
 
         let mut elements_and_bits = Vec::with_capacity(insert_entries.len() + remove_entries.len());

@@ -1,11 +1,11 @@
 use crate::{
+    Result,
     backend::DefaultBackend,
     circuits::get_bytecode_from_program,
     prove::prove,
     traits::{Prove, Verify},
     util::write_to_temp_file,
     verify::verify,
-    Result,
 };
 use element::Base;
 use lazy_static::lazy_static;
@@ -14,8 +14,8 @@ use noirc_artifacts::program::ProgramArtifact;
 use noirc_driver::CompiledProgram;
 use std::path::PathBuf;
 use zk_primitives::{
-    bytes_to_elements, get_address_for_private_key, Signature, SignatureProof, SignatureProofBytes,
-    SignaturePublicInput, ToBytes,
+    Signature, SignatureProof, SignatureProofBytes, SignaturePublicInput, ToBytes,
+    bytes_to_elements, get_address_for_private_key,
 };
 
 const PROGRAM: &str = include_str!("../../../../fixtures/programs/signature.json");
@@ -30,7 +30,7 @@ lazy_static! {
 
 // TODO: can we move this as a trait on zk-primitives?
 const SIGNATURE_PUBLIC_INPUTS_COUNT: usize = 2;
-const SIGNATURE_PROOF_SIZE: usize = 507;
+const SIGNATURE_PROOF_SIZE: usize = 508;
 
 impl Prove for Signature {
     type Proof = SignatureProof;

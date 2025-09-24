@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use std::marker::PhantomData;
 use std::sync::{
-    atomic::{AtomicBool, Ordering::Relaxed},
     Arc,
+    atomic::{AtomicBool, Ordering::Relaxed},
 };
 use tokio::sync::Notify;
 

@@ -1,22 +1,22 @@
 #[cfg(test)]
 mod test_rollup;
 
-use crate::util::{convert_element_to_h256, convert_h160_to_element};
-use barretenberg::{Prove, AGG_UTXO_VERIFICATION_KEY_HASH};
+use crate::util::{calculate_domain_separator, convert_element_to_h256, convert_h160_to_element};
+use barretenberg::Prove;
 use element::Element;
+use ethereum_types::{H256, U256};
 use hash::hash_merge;
-use secp256k1::rand::random;
 use secp256k1::PublicKey;
 use std::str::FromStr;
 use std::sync::Arc;
 use test_rollup::rollup::Rollup;
-use testutil::eth::{EthNode, EthNodeOptions};
 use testutil::ACCOUNT_1_SK;
-use web3::signing::{keccak256, SecretKey};
+use testutil::eth::{EthNode, EthNodeOptions};
+use web3::signing::{SecretKey, keccak256};
 use web3::types::Address;
 use zk_primitives::{
-    bridged_polygon_usdc_note_kind, get_address_for_private_key, AggAgg, AggUtxo, InputNote,
-    MerklePath, Note, Utxo, UtxoKind, UtxoProof, UtxoProofBundleWithMerkleProofs,
+    AggAgg, AggUtxo, AggUtxoProof, InputNote, MerklePath, Note, Utxo, UtxoKind, UtxoProof,
+    UtxoProofBundleWithMerkleProofs, bridged_polygon_usdc_note_kind, get_address_for_private_key,
 };
 // use zk_circuits::constants::MERKLE_TREE_DEPTH;
 // use zk_circuits::data::{BurnTo, Mint, ParameterSet};
@@ -132,11 +132,12 @@ pub fn get_keypair(key: u64) -> (Element, Element) {
     (secret_key, address)
 }
 
-pub fn note(value: u64, address: Element, psi: u64, kind: Element) -> Note {
+pub fn note(value: u64, address: Element, psi: u64, contract: Element) -> Note {
     Note {
+        kind: Element::new(2),
         value: Element::new(value),
         address,
-        kind,
+        contract,
         psi: Element::new(psi),
     }
 }
@@ -304,10 +305,7 @@ async fn verify_transfers() {
     );
     let agg_utxo2_proof = prove_and_verify(&agg_utxo2).unwrap();
 
-    let agg_agg = AggAgg::new(
-        [agg_utxo1_proof, agg_utxo2_proof],
-        Element::from_base(AGG_UTXO_VERIFICATION_KEY_HASH.0),
-    );
+    let agg_agg = AggAgg::new([agg_utxo1_proof, agg_utxo2_proof]);
     let agg_agg_proof = prove_and_verify(&agg_agg).unwrap();
 
     // Sign
@@ -322,11 +320,10 @@ async fn verify_transfers() {
         .await
         .unwrap();
 
-    assert_eq!(agg_agg_proof.proof.0.len(), 440 * 32);
+    assert_eq!(agg_agg_proof.proof.0.len(), 508 * 32);
     env.rollup_contract
         .verify_block(
             &agg_agg_proof.proof.0,
-            &agg_agg.verification_key_hash,
             &agg_agg.old_root(),
             &agg_agg.new_root(),
             &agg_agg.commit_hash(),
@@ -352,7 +349,7 @@ async fn mint_with_authorization() {
 
     let secret_key = secp256k1::SecretKey::from_slice(&env.evm_secret_key.secret_bytes()).unwrap();
 
-    let nonce = random();
+    let nonce = Element::secure_random(rand::thread_rng());
     let valid_after = U256::from(0);
     let valid_before = U256::from(u64::MAX);
 
@@ -365,7 +362,7 @@ async fn mint_with_authorization() {
         amount.into(),
         valid_after,
         valid_before,
-        nonce,
+        H256::from(nonce.to_be_bytes()),
         secret_key,
     );
 
@@ -373,11 +370,11 @@ async fn mint_with_authorization() {
     let mint_sig_bytes = env.rollup_contract.signature_for_mint(
         mint_hash,
         amount.into(),
-        note.kind,
+        note.contract,
         env.evm_address,
         valid_after,
         valid_before,
-        nonce,
+        H256::from(nonce.to_be_bytes()),
         secret_key,
     );
 
@@ -385,11 +382,11 @@ async fn mint_with_authorization() {
         .mint_with_authorization(
             &mint_hash,
             &note.value,
-            &note.kind,
+            &note.contract,
             &env.evm_address,
             U256::from(0),
             U256::from(u64::MAX),
-            nonce,
+            H256::from(nonce.to_be_bytes()),
             &sig_bytes,
             &mint_sig_bytes,
         )
@@ -414,7 +411,7 @@ async fn mint_from() {
         .unwrap();
 
     env.rollup_contract
-        .mint(&mint_hash, &note.value, &note.kind)
+        .mint(&mint_hash, &note.value, &note.contract)
         .await
         .unwrap();
 }
@@ -488,22 +485,10 @@ async fn burn_to() {
     let agg_utxo_proof = agg_utxo.prove().unwrap();
 
     // Create a padding AggUtxo for AggAgg
-    let padding_agg_utxo = AggUtxo::new(
-        [
-            UtxoProofBundleWithMerkleProofs::default(),
-            UtxoProofBundleWithMerkleProofs::default(),
-            UtxoProofBundleWithMerkleProofs::default(),
-        ],
-        new_root,
-        new_root,
-    );
-    let padding_agg_utxo_proof = padding_agg_utxo.prove().unwrap();
+    let padding_agg_utxo_proof = AggUtxoProof::default();
 
     // Create and prove the AggAgg
-    let agg_agg = AggAgg::new(
-        [agg_utxo_proof, padding_agg_utxo_proof],
-        Element::from_base(AGG_UTXO_VERIFICATION_KEY_HASH.0),
-    );
+    let agg_agg = AggAgg::new([agg_utxo_proof, padding_agg_utxo_proof]);
     let agg_agg_proof = agg_agg.prove().unwrap();
 
     // Sign the block
@@ -523,7 +508,6 @@ async fn burn_to() {
     env.rollup_contract
         .verify_block(
             &agg_agg_proof.proof.0,
-            &agg_agg.verification_key_hash,
             &agg_agg.old_root(),
             &agg_agg.new_root(),
             &agg_agg.commit_hash(),
@@ -617,22 +601,10 @@ async fn substitute_burn() {
     let agg_utxo_proof = agg_utxo.prove().unwrap();
 
     // Create a padding AggUtxo for AggAgg
-    let padding_agg_utxo = AggUtxo::new(
-        [
-            UtxoProofBundleWithMerkleProofs::default(),
-            UtxoProofBundleWithMerkleProofs::default(),
-            UtxoProofBundleWithMerkleProofs::default(),
-        ],
-        new_root,
-        new_root,
-    );
-    let padding_agg_utxo_proof = padding_agg_utxo.prove().unwrap();
+    let padding_agg_utxo_proof = AggUtxoProof::default();
 
     // Create and prove the AggAgg
-    let agg_agg = AggAgg::new(
-        [agg_utxo_proof, padding_agg_utxo_proof],
-        Element::from_base(AGG_UTXO_VERIFICATION_KEY_HASH.0),
-    );
+    let agg_agg = AggAgg::new([agg_utxo_proof, padding_agg_utxo_proof]);
     let agg_agg_proof = agg_agg.prove().unwrap();
 
     // Sign the block
@@ -652,10 +624,10 @@ async fn substitute_burn() {
     env.rollup_contract
         .substitute_burn(
             &burn_address,
-            &input_note1.note.kind,
+            &input_note1.note.contract,
             &hash,
             &Element::new(100),
-            u64::MAX,
+            height,
         )
         .await
         .unwrap();
@@ -667,7 +639,6 @@ async fn substitute_burn() {
     env.rollup_contract
         .verify_block(
             &agg_agg_proof.proof.0,
-            &agg_agg.verification_key_hash,
             &agg_agg.old_root(),
             &agg_agg.new_root(),
             &agg_agg.commit_hash(),
@@ -892,4 +863,51 @@ fn empty_root() {
     let tree = smirk::Tree::<161, ()>::new();
     let hash = expect_test::expect_file!["./empty_merkle_tree_root_hash.txt"];
     hash.assert_eq(&tree.root_hash().to_hex());
+}
+
+#[test]
+fn test_domain_separator_calculation() {
+    // Test primary rollup chain values (Chain ID: 137 - Polygon)
+    let chain_id = U256::from(137);
+
+    // Test USDC contract
+    let usdc_address: Address = "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359"
+        .parse()
+        .unwrap();
+    let usdc_domain_separator = calculate_domain_separator("USD Coin", "2", chain_id, usdc_address);
+    let expected_usdc = H256::from_slice(
+        &hex::decode("caa2ce1a5703ccbe253a34eb3166df60a705c561b44b192061e28f2a985be2ca").unwrap(),
+    );
+    assert_eq!(
+        usdc_domain_separator, expected_usdc,
+        "USDC domain separator mismatch"
+    );
+
+    // Test AcrossWithAuthorization contract
+    let across_address: Address = "0xf5bf1a6a83029503157bb3761488bb75d64002e7"
+        .parse()
+        .unwrap();
+    let across_domain_separator =
+        calculate_domain_separator("AcrossWithAuthorization", "1", chain_id, across_address);
+    let expected_across = H256::from_slice(
+        &hex::decode("c0db9d13ac268c870ccb743fd1078a25b4c98ff3ba232167b02aff4340f8c8cc").unwrap(),
+    );
+    assert_eq!(
+        across_domain_separator, expected_across,
+        "AcrossWithAuthorization domain separator mismatch"
+    );
+
+    // Test Rollup contract
+    let rollup_address: Address = "0xcd92281548df923141fd9b690c7c8522e12e76e6"
+        .parse()
+        .unwrap();
+    let rollup_domain_separator =
+        calculate_domain_separator("Rollup", "1", chain_id, rollup_address);
+    let expected_rollup = H256::from_slice(
+        &hex::decode("5261b2c944771285325623d865717567b4425028487b653028b59e46d910b34d").unwrap(),
+    );
+    assert_eq!(
+        rollup_domain_separator, expected_rollup,
+        "Rollup domain separator mismatch"
+    );
 }

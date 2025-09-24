@@ -1,4 +1,4 @@
-use crate::{hash_cache::SimpleHashCache, Tree};
+use crate::{Tree, batch as batch_macro, hash_cache::SimpleHashCache};
 use borsh::{BorshDeserialize, BorshSerialize};
 use core::fmt::Debug;
 use element::Element;
@@ -142,7 +142,7 @@ impl<const DEPTH: usize, V> Persistent<DEPTH, V> {
     where
         V: BorshSerialize + BorshDeserialize + Send + Sync + 'static + Clone,
     {
-        self.insert_batch(crate::batch! { element => value })
+        self.insert_batch(batch_macro! { element => value })
     }
 
     /// Store all computed hashes from the in-memory tree into rocksdb

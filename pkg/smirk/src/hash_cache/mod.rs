@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 use element::Element;
 use hash::hash_merge;
 
@@ -159,12 +159,16 @@ mod tests {
         cache.hash(Element::new(1), Element::new(2));
         cache.hash(Element::new(3), Element::new(4));
 
-        assert!(cache
-            .inner
-            .contains_key(&(Element::new(1), Element::new(2))));
-        assert!(cache
-            .inner
-            .contains_key(&(Element::new(3), Element::new(4))));
+        assert!(
+            cache
+                .inner
+                .contains_key(&(Element::new(1), Element::new(2)))
+        );
+        assert!(
+            cache
+                .inner
+                .contains_key(&(Element::new(3), Element::new(4)))
+        );
 
         assert_eq!(cache.metrics().hashes(), 2);
         assert_eq!(cache.metrics().cache_hits(), 0);

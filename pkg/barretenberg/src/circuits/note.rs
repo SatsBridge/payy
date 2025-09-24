@@ -37,7 +37,7 @@ pub struct BNote {
 impl From<&Note> for BNote {
     fn from(note: &Note) -> Self {
         BNote {
-            kind: note.kind.to_base(),
+            kind: note.contract.to_base(),
             value: note.value.to_base(),
             address: note.address.to_base(),
             psi: note.psi.to_base(),

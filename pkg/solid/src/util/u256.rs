@@ -1,4 +1,5 @@
 #![allow(clippy::assign_op_pattern)]
+#![expect(clippy::manual_div_ceil)]
 
 use uint::*;
 

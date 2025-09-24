@@ -1,22 +1,22 @@
 use super::note::{BInputNote, BNote};
 use crate::{
+    Result,
     backend::DefaultBackend,
     circuits::get_bytecode_from_program,
     prove::prove,
     traits::{Prove, Verify},
     util::write_to_temp_file,
-    verify::{verify, VerificationKey, VerificationKeyHash},
-    Result,
+    verify::{VerificationKey, VerificationKeyHash, verify},
 };
 use element::Base;
 use lazy_static::lazy_static;
-use noirc_abi::{input_parser::InputValue, InputMap};
+use noirc_abi::{InputMap, input_parser::InputValue};
 use noirc_artifacts::program::ProgramArtifact;
 use noirc_driver::CompiledProgram;
 use std::path::PathBuf;
 use zk_primitives::{
-    bytes_to_elements, ToBytes, Utxo, UtxoProof, UtxoProofBytes, UtxoPublicInput, UTXO_PROOF_SIZE,
-    UTXO_PUBLIC_INPUTS_COUNT,
+    ToBytes, UTXO_PROOF_SIZE, UTXO_PUBLIC_INPUTS_COUNT, Utxo, UtxoProof, UtxoProofBytes,
+    UtxoPublicInput, bytes_to_elements,
 };
 
 const PROGRAM: &str = include_str!("../../../../fixtures/programs/utxo.json");
@@ -82,7 +82,6 @@ impl Prove for Utxo {
                     public_inputs[6],
                     public_inputs[7],
                     public_inputs[8],
-                    public_inputs[9],
                 ],
             },
         };
@@ -94,7 +93,7 @@ impl Prove for Utxo {
 impl Verify for UtxoProof {
     fn verify(&self) -> Result<()> {
         let bytes = self.to_bytes();
-        verify::<crate::backend::DefaultBackend>(KEY, &bytes, false)
+        verify::<DefaultBackend>(KEY, &bytes, false)
     }
 }
 
@@ -104,7 +103,7 @@ struct UtxoInput {
     output_notes: [BNote; 2],
     pmessage4: Base,
     commitments: [Base; 4],
-    messages: [Base; 6],
+    messages: [Base; 5],
 }
 
 impl From<&Utxo> for UtxoInput {

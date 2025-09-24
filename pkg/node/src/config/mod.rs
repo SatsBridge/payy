@@ -5,8 +5,8 @@ use crate::Mode;
 use color_eyre::Result;
 use dirs::home_dir;
 use figment::{
-    providers::{Env, Format, Toml},
     Figment,
+    providers::{Env, Format, Toml},
 };
 use primitives::peer::PeerIdSigner;
 use serde::Deserialize;

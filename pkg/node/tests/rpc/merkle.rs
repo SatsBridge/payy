@@ -4,7 +4,7 @@ use element::Element;
 use expect_test::expect;
 use testutil::eth::EthNode;
 
-use crate::rpc::{mint, rollup_contract, ServerConfig};
+use crate::rpc::{ServerConfig, mint, rollup_contract};
 
 use super::usdc_contract;
 

@@ -1,5 +1,6 @@
 mod agg_agg;
 mod agg_utxo;
+mod migrate;
 mod note;
 mod points;
 mod signature;
@@ -12,6 +13,7 @@ use std::io::Read;
 pub use agg_utxo::*;
 use base64::Engine;
 use flate2::read::GzDecoder;
+// pub use migrate::*;
 pub use utxo::*;
 
 fn get_bytecode_from_program(program_json: &str) -> Vec<u8> {

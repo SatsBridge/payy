@@ -2,17 +2,19 @@ use std::fmt::Debug;
 
 use crate::impl_serde_for_element_array;
 use crate::traits::ToBytes;
-use crate::{bytes_to_elements, InputNote, Note};
+use crate::{InputNote, Note, bytes_to_elements};
 use borsh::{BorshDeserialize, BorshSerialize};
 use element::{Base, Element};
 use hash::hash_merge;
 use primitives::serde::{deserialize_base64, serialize_base64};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "ts-rs")]
+use ts_rs::TS;
 
 /// Number of public input fields for utxo proof
-pub const UTXO_PUBLIC_INPUTS_COUNT: usize = 10;
+pub const UTXO_PUBLIC_INPUTS_COUNT: usize = 9;
 /// Number of fields in the proof
-pub const UTXO_PROOF_SIZE: usize = 507;
+pub const UTXO_PROOF_SIZE: usize = 508;
 
 /// Utxo is the data required to prove a utxo transaction
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +93,7 @@ impl Utxo {
 
     /// Get the messages for the Utxo transaction
     #[must_use]
-    pub fn messages(&self) -> [Element; 6] {
+    pub fn messages(&self) -> [Element; 5] {
         match self.kind {
             UtxoKind::Send => [
                 Element::new(1),
@@ -99,26 +101,22 @@ impl Utxo {
                 Element::ZERO,
                 Element::ZERO,
                 Element::ZERO,
-                Element::ZERO,
             ],
             UtxoKind::Mint => [
                 Element::new(2),
-                self.output_notes[0].kind,
+                self.output_notes[0].contract,
                 self.output_value() - self.input_value(),
                 self.mint_hash(),
-                Element::ZERO,
                 Element::ZERO,
             ],
             UtxoKind::Burn => [
                 Element::new(3),
-                self.input_notes[0].note.kind,
+                self.input_notes[0].note.contract,
                 self.input_value() - self.output_value(),
                 self.burn_hash(),
                 self.burn_address.unwrap(),
-                Element::ZERO,
             ],
             UtxoKind::Null => [
-                Element::ZERO,
                 Element::ZERO,
                 Element::ZERO,
                 Element::ZERO,
@@ -189,6 +187,8 @@ impl Utxo {
 /// The kind of Utxo transaction
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub enum UtxoKind {
     /// A null transaction (padding UTXO)
     Null,
@@ -274,13 +274,18 @@ impl UtxoProofBytes {
 #[derive(
     Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct UtxoPublicInput {
     /// The input commitments
+    #[cfg_attr(feature = "ts-rs", ts(as = "[String; 2]"))]
     pub input_commitments: [Element; 2],
     /// The output commitments
+    #[cfg_attr(feature = "ts-rs", ts(as = "[String; 2]"))]
     pub output_commitments: [Element; 2],
     /// The message of the transaction
-    pub messages: [Element; 6],
+    #[cfg_attr(feature = "ts-rs", ts(as = "[String; 5]"))]
+    pub messages: [Element; 5],
 }
 
 impl UtxoPublicInput {
@@ -297,14 +302,13 @@ impl UtxoPublicInput {
             self.messages[2].to_be_bytes(),
             self.messages[3].to_be_bytes(),
             self.messages[4].to_be_bytes(),
-            self.messages[5].to_be_bytes(),
         ]
         .concat()
     }
 
     /// Fields
     #[must_use]
-    pub fn fields(&self) -> [Element; 10] {
+    pub fn fields(&self) -> [Element; 9] {
         [
             self.input_commitments[0],
             self.input_commitments[1],
@@ -315,7 +319,6 @@ impl UtxoPublicInput {
             self.messages[2],
             self.messages[3],
             self.messages[4],
-            self.messages[5],
         ]
     }
 
@@ -434,9 +437,12 @@ impl From<[Base; 93]> for UtxoProofFields {
 }
 
 /// The output proof for a Utxo transaction
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 #[derive(Default, Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct UtxoProof {
     /// The proof for the Utxo transaction
+    #[cfg_attr(feature = "ts-rs", ts(type = "string"))]
     pub proof: UtxoProofBytes,
     /// The public input for the Utxo transaction
     pub public_inputs: UtxoPublicInput,
@@ -452,7 +458,6 @@ impl Eq for UtxoProof {}
 
 impl ToBytes for UtxoProof {
     /// Convert the UtxoProof to a UtxoProofFields
-    #[must_use]
     fn to_bytes(&self) -> Vec<u8> {
         // TODO: move to impl detail of proving backend
         let pi = self.public_inputs.to_bytes();

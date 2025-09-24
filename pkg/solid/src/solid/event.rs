@@ -1,6 +1,6 @@
 use crate::{
-    proposal::{Manifest, ProposalAccept, ProposalHash},
     AppState, Peer,
+    proposal::{Manifest, ProposalAccept, ProposalHash},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 

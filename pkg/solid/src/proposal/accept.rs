@@ -1,7 +1,7 @@
 use super::ProposalHeader;
+use crate::ProposalAcceptSigData;
 use crate::errors::{Error, Result};
 use crate::traits::Peer;
-use crate::ProposalAcceptSigData;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// ProposalAccept is sent by all peers to the next leader to indicate

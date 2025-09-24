@@ -4,8 +4,8 @@ use std::str::FromStr;
 use web3::signing::keccak256;
 
 use crate::{
-    bridged_polygon_usdc_note_kind, get_address_for_private_key, hash_private_key_for_psi,
-    InputNote, Note,
+    InputNote, Note, bridged_polygon_usdc_note_kind, get_address_for_private_key,
+    hash_private_key_for_psi,
 };
 
 /// NoteURLPayload is a struct that contains the data required to create a note URL
@@ -37,7 +37,8 @@ impl From<&NoteURLPayload> for InputNote {
         InputNote {
             secret_key: value.private_key,
             note: Note {
-                kind: bridged_polygon_usdc_note_kind(),
+                kind: Element::new(2),
+                contract: bridged_polygon_usdc_note_kind(),
                 address: get_address_for_private_key(value.private_key),
                 psi,
                 value: value.value,

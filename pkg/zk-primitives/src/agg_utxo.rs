@@ -1,5 +1,5 @@
-use crate::{bytes_to_elements, impl_serde_for_element_array, ToBytes};
 use crate::{MerklePath, UtxoProof};
+use crate::{ToBytes, UtxoKind, bytes_to_elements, impl_serde_for_element_array};
 use element::{Base, Element};
 use hash::hash_merge;
 use primitives::serde::{deserialize_base64, serialize_base64};
@@ -42,6 +42,28 @@ impl AggUtxo {
             self.proofs[2].utxo_proof.public_inputs.commit_hash(),
         ])
     }
+
+    /// Commit hash for utxo_agg
+    #[must_use]
+    pub fn messages(&self) -> [Element; 15] {
+        let mut messages = [Element::ZERO; 15];
+        let mut index = 0;
+
+        for proof in &self.proofs {
+            let proof_messages = match proof.utxo_proof.kind() {
+                UtxoKind::Null | UtxoKind::Send => &[][..],
+                UtxoKind::Mint => &proof.utxo_proof.public_inputs.messages[..4],
+                UtxoKind::Burn => &proof.utxo_proof.public_inputs.messages[..],
+            };
+
+            for &message in proof_messages {
+                messages[index] = message;
+                index += 1;
+            }
+        }
+
+        messages
+    }
 }
 
 /// A Utxo proof bundle with merkle proofs
@@ -69,7 +91,6 @@ impl UtxoProofBundleWithMerkleProofs {
 
 impl Default for UtxoProofBundleWithMerkleProofs {
     /// Create a padding UtxoProofBundleWithMerkleProofs
-    #[must_use]
     fn default() -> UtxoProofBundleWithMerkleProofs {
         let merkle_path = MerklePath::default();
         Self {
@@ -98,6 +119,12 @@ impl AggUtxoProofBytes {
     }
 }
 
+impl Default for AggUtxoProofBytes {
+    fn default() -> Self {
+        Self(vec![0u8; 508 * 32])
+    }
+}
+
 /// The proof for a Utxo transaction
 #[derive(Debug, Clone)]
 pub struct AggUtxoProofFields(pub [Element; 93]);
@@ -116,10 +143,10 @@ impl From<&AggUtxoProofFields> for [Base; 93] {
 }
 
 /// The public input for a AggUtxo transaction
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct AggUtxoPublicInput {
     /// The messages of the transactions
-    pub messages: [Element; 18],
+    pub messages: [Element; 15],
     /// The old root of the tree
     pub old_root: Element,
     /// The new root of the tree
@@ -148,19 +175,22 @@ impl AggUtxoPublicInput {
             self.messages[12].to_be_bytes(),
             self.messages[13].to_be_bytes(),
             self.messages[14].to_be_bytes(),
-            self.messages[15].to_be_bytes(),
-            self.messages[16].to_be_bytes(),
-            self.messages[17].to_be_bytes(),
             self.old_root.to_be_bytes(),
             self.new_root.to_be_bytes(),
             self.commit_hash.to_be_bytes(),
         ]
         .concat()
     }
+
+    /// Check if this is a padding proof (if old_root is zero element)
+    #[must_use]
+    pub fn is_padding(&self) -> bool {
+        self.old_root == Element::ZERO
+    }
 }
 
 /// The output proof for a AggUtxo transaction
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct AggUtxoProof {
     /// The proof for the AggUtxo transaction
     pub proof: AggUtxoProofBytes,
@@ -170,7 +200,6 @@ pub struct AggUtxoProof {
 
 impl ToBytes for AggUtxoProof {
     /// Convert the UtxoProof to a UtxoProofFields
-    #[must_use]
     fn to_bytes(&self) -> Vec<u8> {
         // TODO: move to impl detail of proving backend
         let pi = self.public_inputs.to_bytes();

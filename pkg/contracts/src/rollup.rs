@@ -3,11 +3,11 @@ use std::time::Duration;
 
 use crate::constants::{UTXO_INPUTS, UTXO_N};
 use crate::error::Result;
-use crate::util::{convert_element_to_h256, convert_fr_to_u256};
-use crate::Client;
+use crate::util::{calculate_domain_separator, convert_element_to_h256, convert_fr_to_u256};
+use crate::{Client, client::retry_on_network_failure};
 use element::Element;
 use eth_util::Eth;
-use ethereum_types::{H160, H256, U256, U64};
+use ethereum_types::{H160, H256, U64, U256};
 use parking_lot::RwLock;
 use secp256k1::{Message, SECP256K1};
 use sha3::{Digest, Keccak256};
@@ -42,6 +42,7 @@ pub struct Burn {
 pub struct Mint {
     pub note_kind: Element,
     pub amount: Element,
+    pub spent: bool,
 }
 
 impl Tokenize for Mint {
@@ -55,17 +56,18 @@ impl Tokenize for Mint {
 
 impl Detokenize for Mint {
     fn from_tokens(tokens: Vec<Token>) -> Result<Self, web3::contract::Error> {
-        // Handle the case where we get a single Tuple token containing the two values
-        let (note_kind, amount) = match &tokens[0] {
+        // Handle the case where we get a single Tuple token containing the three values
+        let (note_kind, amount, spent) = match &tokens[0] {
             Token::Tuple(inner_tokens) => {
-                if inner_tokens.len() != 2 {
+                if inner_tokens.len() != 3 {
                     return Err(web3::contract::Error::InvalidOutputType(
-                        "expected tuple with 2 elements".to_string(),
+                        "expected tuple with 3 elements".to_string(),
                     ));
                 }
                 (
                     H256::from_token(inner_tokens[0].clone())?,
                     U256::from_token(inner_tokens[1].clone())?,
+                    bool::from_token(inner_tokens[2].clone())?,
                 )
             }
             _ => {
@@ -78,6 +80,7 @@ impl Detokenize for Mint {
         Ok(Mint {
             note_kind: Element::from_be_bytes(note_kind.0),
             amount: Element::from_u64_array(amount.0),
+            spent,
         })
     }
 }
@@ -114,6 +117,8 @@ pub struct BurnedEvent {
     pub burn_hash: H256,
     /// Whether the burn occurred due to a substitute
     pub substitute: bool,
+    /// Recipient of the burn
+    pub recipient: Address,
     /// Returns whether the burn was successful, it can be unsuccessful if
     /// IERC20(token).transfer throws an error
     pub success: bool,
@@ -222,6 +227,7 @@ pub struct RollupContract {
     pub signer_address: Address,
     pub domain_separator: H256,
     pub validator_sets: Arc<RwLock<Vec<ValidatorSet>>>,
+    /// Address of rollup contract
     address: Address,
     /// The ethereum block height used for all contract calls.
     /// If None, the latest block is used.
@@ -256,6 +262,7 @@ impl RollupContract {
 
     pub async fn load(
         client: Client,
+        chain_id: u128,
         rollup_contract_addr: &str,
         signer: SecretKey,
     ) -> Result<Self> {
@@ -263,16 +270,12 @@ impl RollupContract {
             include_str!("../../../eth/artifacts/contracts/rollup2/RollupV1.sol/RollupV1.json");
         let contract = client.load_contract_from_str(rollup_contract_addr, contract_json)?;
 
-        let domain_separator = client
-            .query::<H256, _, _, _>(
-                &contract,
-                "DOMAIN_SEPARATOR",
-                (),
-                None,
-                Default::default(),
-                None,
-            )
-            .await?;
+        let domain_separator = calculate_domain_separator(
+            "Rollup",
+            "1",
+            U256::from(chain_id),
+            rollup_contract_addr.parse()?,
+        );
 
         let self_ = Self::new(
             client,
@@ -288,9 +291,9 @@ impl RollupContract {
     }
 
     pub async fn from_eth_node(eth_node: &EthNode, secret_key: SecretKey) -> Result<Self> {
-        let rollup_addr = "dc64a140aa3e981100a9beca4e685f962f0cf6c9";
+        let rollup_addr = "cf7ed3acca5a467e9e704c703e8d87f634fb0fc9";
         let client = Client::from_eth_node(eth_node);
-        Self::load(client, rollup_addr, secret_key).await
+        Self::load(client, 1337, rollup_addr, secret_key).await
     }
 
     pub fn at_height(self, height: Option<u64>) -> Self {
@@ -307,21 +310,20 @@ impl RollupContract {
     }
 
     pub async fn worker(&self, interval: Duration) -> Result<()> {
-        let mut events = self.listen_for_validator_set_added(interval).await?.boxed();
-
         let this = self.clone();
-        let mut consecutive_transport_error_count = 0;
-        const MAX_CONSECUTIVE_TRANSPORT_ERRORS: u64 = 5;
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
+            let mut events = this.listen_for_validator_set_added(interval).await?.boxed();
+            let mut consecutive_transport_error_count = 0;
+            const MAX_CONSECUTIVE_TRANSPORT_ERRORS: u64 = 5;
+
             while let Some(event) = events.next().await {
                 let event = match event {
                     Ok(event) => {
                         consecutive_transport_error_count = 0;
 
                         event
-                    },
-                    Err(err @ web3::Error::Transport(_)) =>
-                    {
+                    }
+                    Err(err @ web3::Error::Transport(_)) => {
                         // TODO: refactor this retry logic
                         consecutive_transport_error_count += 1;
 
@@ -343,7 +345,9 @@ impl RollupContract {
                                 Err(err @ web3::Error::Transport(_)) => {
                                     consecutive_transport_error_count += 1;
 
-                                    if consecutive_transport_error_count > MAX_CONSECUTIVE_TRANSPORT_ERRORS {
+                                    if consecutive_transport_error_count
+                                        > MAX_CONSECUTIVE_TRANSPORT_ERRORS
+                                    {
                                         return Err(err.into());
                                     }
 
@@ -353,7 +357,7 @@ impl RollupContract {
                                         "Received a transport error while trying to create a new event listener. Retrying."
                                     );
                                     continue;
-                                },
+                                }
                                 Err(err) => return Err(err.into()),
                             }
                         };
@@ -378,8 +382,9 @@ impl RollupContract {
             }
 
             Ok(())
-        })
-        .await?
+        });
+
+        handle.await?
     }
 
     pub async fn call(&self, func: &str, params: impl Tokenize + Clone) -> Result<H256> {
@@ -399,11 +404,10 @@ impl RollupContract {
     pub async fn verify_block(
         &self,
         proof: &[u8],
-        verification_key_hash: &Element,
         old_root: &Element,
         new_root: &Element,
         commit_hash: &Element,
-        // 6 utxo * 6 messages per utxo
+        // 6 utxo * 5 messages per utxo
         utxo_messages: &[Element],
         kzg: &[Element],
         other_hash: [u8; 32],
@@ -434,7 +438,6 @@ impl RollupContract {
         let kzg = kzg.iter().map(convert_element_to_h256);
 
         let mut public_inputs = vec![
-            convert_element_to_h256(verification_key_hash),
             convert_element_to_h256(old_root),
             convert_element_to_h256(new_root),
             convert_element_to_h256(commit_hash),
@@ -444,9 +447,12 @@ impl RollupContract {
 
         let call_tx = self
             .call(
-                "verifyRollup36",
+                "verifyRollup",
                 (
                     U256::from(height),
+                    "0x1594fce0e59bc3785292f9ab4f5a1e45f5795b4a616aff5cdc4d32a223f69f0c"
+                        .parse::<H256>()
+                        .expect("verification key is parsable"),
                     web3::types::Bytes::from(proof),
                     public_inputs,
                     H256::from_slice(&other_hash),
@@ -828,6 +834,7 @@ impl RollupContract {
         note_kind: &Element,
         hash: &Element,
         amount: &Element,
+        burn_block_height: u64,
     ) -> Result<bool> {
         let was_substituted: bool = self
             .client
@@ -839,6 +846,7 @@ impl RollupContract {
                     convert_element_to_h256(note_kind).into_token(),
                     convert_element_to_h256(hash).into_token(),
                     Token::Uint(convert_fr_to_u256(amount)),
+                    U256::from(burn_block_height),
                 ),
                 None,
                 Default::default(),
@@ -859,7 +867,7 @@ impl RollupContract {
     ) -> Result<Vec<BurnedEvent>> {
         // Create the event signature hash
         let event_signature = H256::from_slice(
-            &Keccak256::digest(b"Burned(address,bytes32,bool,bool)").as_slice()[0..32],
+            &Keccak256::digest(b"Burned(address,bytes32,address,bool,bool)").as_slice()[0..32],
         );
 
         let burn_hash_h256 = burn_hash.to_h256();
@@ -882,9 +890,12 @@ impl RollupContract {
 
         let mut events = Vec::new();
         for log in logs {
-            if log.topics.len() >= 3 && log.data.0.len() >= 64 {
+            if log.topics.len() >= 4 && log.data.0.len() >= 64 {
                 // Extract token address from first topic
                 let token = Address::from_slice(&log.topics[1].as_bytes()[12..32]);
+
+                // Extract recipient address from third topic
+                let recipient = Address::from_slice(&log.topics[3].as_bytes()[12..32]);
 
                 // Extract substitute (first boolean)
                 let substitute = !log.data.0[31..32].iter().all(|&b| b == 0);
@@ -896,6 +907,7 @@ impl RollupContract {
                     token,
                     burn_hash: burn_hash_h256,
                     substitute,
+                    recipient,
                     success,
                     txn_hash: log.transaction_hash,
                     block_number: log.block_number.map(|u| u.as_u64()),
@@ -1016,7 +1028,8 @@ impl RollupContract {
     pub async fn listen_for_validator_set_added(
         &self,
         interval: Duration,
-    ) -> Result<impl Stream<Item = web3::error::Result<web3::types::Log>>, web3::Error> {
+    ) -> Result<impl Stream<Item = web3::error::Result<web3::types::Log>> + use<>, web3::Error>
+    {
         let filter = FilterBuilder::default()
             .address(vec![self.contract.address()])
             .topics(
@@ -1029,12 +1042,11 @@ impl RollupContract {
             )
             .build();
 
-        let sub = self
-            .client
-            .client()
-            .eth_filter()
-            .create_logs_filter(filter)
-            .await?;
+        let sub = retry_on_network_failure({
+            let filter = filter.clone();
+            move || self.client.client().eth_filter().create_logs_filter(filter)
+        })
+        .await?;
 
         Ok(sub.stream(interval))
     }

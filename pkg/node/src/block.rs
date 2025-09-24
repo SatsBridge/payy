@@ -10,7 +10,7 @@ use std::{collections::HashMap, fmt::Debug};
 use tracing::error;
 
 use crate::types::BlockHeight;
-use crate::{utxo::validate_txn, BlockFormat, PersistentMerkleTree};
+use crate::{BlockFormat, PersistentMerkleTree, utxo::validate_txn};
 use crate::{Error, Mode};
 use primitives::sig::Signature;
 use zk_primitives::UtxoProof;

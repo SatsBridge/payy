@@ -3,7 +3,7 @@ use std::sync::Arc;
 use element::Element;
 use testutil::eth::EthNode;
 
-use crate::rpc::{mint, rollup_contract, ServerConfig};
+use crate::rpc::{ServerConfig, mint, rollup_contract};
 
 use super::usdc_contract;
 

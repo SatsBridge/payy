@@ -1,7 +1,7 @@
 [package]
 name = "element"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 acvm = { workspace = true }
@@ -16,6 +16,7 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 borsh = { workspace = true, optional = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
+ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-strategy = { workspace = true }
@@ -26,3 +27,4 @@ rand_xorshift = { workspace = true }
 
 [features]
 default = ["serde", "rand", "borsh"]
+ts-rs = ["dep:ts-rs"]

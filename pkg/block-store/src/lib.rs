@@ -16,7 +16,7 @@ use keys::{ElementHistoryKind, Key, KeyBlock, StoreKey};
 use migration::LATEST_VERSION;
 use primitives::{block_height::BlockHeight, hash::CryptoHash};
 use rocksdb::DB;
-use values::{ElementHistoryData, ElementHistoryValue};
+use values::{ElementHistoryData, ElementHistoryValue, MintHashData, MintHashValue};
 use wire_message::WireMessage;
 
 pub use keys::BlockListOrder;
@@ -63,6 +63,7 @@ pub trait Transaction {
     fn txn_hash(&self) -> [u8; 32];
     fn input_elements(&self) -> Vec<element::Element>;
     fn output_elements(&self) -> Vec<element::Element>;
+    fn mint_hash(&self) -> Option<element::Element>;
 }
 
 impl<B> BlockStore<B>
@@ -155,6 +156,19 @@ where
                 history_value.serialize(&mut history_value_bytes)?;
 
                 batch.put(history_key.serialize(), &history_value_bytes);
+            }
+
+            if let Some(mint_hash) = txn.mint_hash() {
+                let mint_hash_key = Key::MintHash(mint_hash);
+
+                let mint_hash_value = MintHashValue::V1(MintHashData {
+                    block_hash: CryptoHash(block_hash_arr),
+                    block_height: height,
+                });
+                let mut mint_hash_value_bytes = Vec::new();
+                mint_hash_value.serialize(&mut mint_hash_value_bytes)?;
+
+                batch.put(mint_hash_key.serialize(), &mint_hash_value_bytes);
             }
         }
 
@@ -259,6 +273,18 @@ where
             self.get_element_history_with_kind(element, ElementHistoryKind::Output)?,
         ))
     }
+
+    /// Returns mint hash data
+    pub fn get_mint_hash(&self, mint_hash: element::Element) -> Result<Option<MintHashData>> {
+        let key = Key::MintHash(mint_hash);
+        let Some(bytes) = self.db.get(key.serialize())? else {
+            return Ok(None);
+        };
+        let value = MintHashValue::deserialize(&mut &bytes[..])?;
+        match value {
+            MintHashValue::V1(data) => Ok(Some(data)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -270,7 +296,7 @@ mod tests {
 
     pub(crate) type DummyBlock = DummyMsg<(BlockHeight, [u8; 32], Vec<DummyTxn>)>;
     pub(crate) type DummyTxn =
-        wire_message::test_api::DummyMsg<([u8; 32], (Vec<Element>, Vec<Element>))>;
+        wire_message::test_api::DummyMsg<([u8; 32], (Vec<Element>, Vec<Element>), Option<Element>)>;
 
     impl Block for DummyBlock {
         type Txn = DummyTxn;
@@ -294,11 +320,15 @@ mod tests {
         }
 
         fn input_elements(&self) -> Vec<element::Element> {
-            self.inner().1 .0.clone()
+            self.inner().1.0.clone()
         }
 
         fn output_elements(&self) -> Vec<element::Element> {
-            self.inner().1 .1.clone()
+            self.inner().1.1.clone()
+        }
+
+        fn mint_hash(&self) -> Option<element::Element> {
+            self.inner().2
         }
     }
 
@@ -320,9 +350,19 @@ mod tests {
         let block_number = BlockHeight(1);
         let element1 = Element::from(100u64);
         let element2 = Element::from(101u64);
+        let mint_hash = Element::from(102u64);
+        let mint_hash_2 = Element::from(103u64);
         let txns = vec![
-            DummyTxn::V1(([123; 32], (vec![], vec![element1, element2]))),
-            DummyTxn::V1(([124; 32], (vec![element1, element2], vec![]))),
+            DummyTxn::V1((
+                [123; 32],
+                (vec![], vec![element1, element2]),
+                Some(mint_hash),
+            )),
+            DummyTxn::V1((
+                [124; 32],
+                (vec![element1, element2], vec![]),
+                Some(mint_hash_2),
+            )),
         ];
         let block_data = DummyBlock::V1((block_number, [0; 32], txns.clone()));
 
@@ -384,11 +424,28 @@ mod tests {
         );
 
         let non_existent_element = element::Element::from(999u64);
-        assert!(block_store
-            .get_element_history(non_existent_element)
-            .unwrap()
-            .1
-            .is_none());
+        assert!(
+            block_store
+                .get_element_history(non_existent_element)
+                .unwrap()
+                .1
+                .is_none()
+        );
+
+        // Test get_mint_hash
+        let mint_hash_data = block_store.get_mint_hash(mint_hash).unwrap().unwrap();
+        assert_eq!(mint_hash_data.block_height, block_number);
+        assert_eq!(
+            mint_hash_data.block_hash,
+            primitives::hash::CryptoHash::new([0u8; 32]),
+        );
+
+        let mint_hash_data_2 = block_store.get_mint_hash(mint_hash_2).unwrap().unwrap();
+        assert_eq!(mint_hash_data_2.block_height, block_number);
+        assert_eq!(
+            mint_hash_data_2.block_hash,
+            primitives::hash::CryptoHash::new([0u8; 32]),
+        );
     }
 
     #[test]

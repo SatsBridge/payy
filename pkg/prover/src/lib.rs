@@ -4,9 +4,9 @@
 mod constants;
 pub mod smirk_metadata;
 use crate::constants::{
-    MERKLE_TREE_DEPTH, MERKLE_TREE_PATH_DEPTH, UTXO_AGGREGATIONS, UTXO_AGG_LEAVES, UTXO_AGG_NUMBER,
+    MERKLE_TREE_DEPTH, MERKLE_TREE_PATH_DEPTH, UTXO_AGG_LEAVES, UTXO_AGG_NUMBER, UTXO_AGGREGATIONS,
 };
-use barretenberg::{Prove, AGG_UTXO_VERIFICATION_KEY_HASH};
+use barretenberg::Prove;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use constants::MAXIMUM_TXNS;
 use contracts::RollupContract;
@@ -14,8 +14,8 @@ use element::Element;
 use ethereum_types::H256;
 use primitives::sig::Signature;
 use smirk::{
-    hash_cache::{NoopHashCache, SimpleHashCache},
     Path, Tree,
+    hash_cache::{NoopHashCache, SimpleHashCache},
 };
 use smirk_metadata::SmirkMetadata;
 use std::sync::Arc;
@@ -166,7 +166,6 @@ impl Prover {
             .contract
             .verify_block(
                 &input.proof.proof.0,
-                &input.proof.public_inputs.verification_key_hash,
                 &input.proof.public_inputs.old_root,
                 &input.proof.public_inputs.new_root,
                 &input.proof.public_inputs.commit_hash,
@@ -271,10 +270,7 @@ impl Prover {
                 actual: v.len(),
             })?;
 
-        let agg_agg = AggAgg::new(
-            utxo_aggregations,
-            Element::from_base(AGG_UTXO_VERIFICATION_KEY_HASH.0),
-        );
+        let agg_agg = AggAgg::new(utxo_aggregations);
         let proof = agg_agg
             .prove()
             .map_err(|e| Error::BarretenbergProve(e.to_string()))?;
@@ -289,6 +285,10 @@ impl Prover {
         utxos: [Transaction; UTXO_AGG_NUMBER],
         current_block: u64,
     ) -> Result<AggUtxoProof, Error> {
+        if utxos.iter().all(|utxo| utxo.proof.is_padding()) {
+            return Ok(AggUtxoProof::default());
+        }
+
         let (_, old_tree, new_tree, merkle_paths) =
             self.gen_merkle_paths(tree, &utxos, current_block)?;
 

@@ -67,4 +67,16 @@ impl block_store::Transaction for TxnFormat {
                 .collect(),
         }
     }
+
+    fn mint_hash(&self) -> Option<element::Element> {
+        match self {
+            TxnFormat::V1(utxo_proof, _) => match utxo_proof.public_inputs.kind_messages() {
+                zk_primitives::UtxoKindMessages::Mint(utxo_kind_mint_messages) => {
+                    Some(utxo_kind_mint_messages.mint_hash)
+                }
+                zk_primitives::UtxoKindMessages::Burn(_) => None,
+                zk_primitives::UtxoKindMessages::None => None,
+            },
+        }
+    }
 }

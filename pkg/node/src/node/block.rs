@@ -3,9 +3,9 @@ use smirk::Batch;
 use tracing::instrument;
 
 use crate::{
+    Error, NodeShared, PersistentMerkleTree, Result,
     block::{Block, BlockState},
     types::BlockHeight,
-    Error, NodeShared, PersistentMerkleTree, Result,
 };
 
 impl NodeShared {

@@ -2,6 +2,33 @@
 
 Rollup smart contracts to verify the rollup state on Ethereum.
 
+## Testing
+
+The project uses Hardhat with Mocha/Chai testing framework and blockchain-specific matchers for comprehensive smart contract testing.
+
+### Run Tests
+
+```bash
+yarn test
+```
+
+### Test Features
+
+- **Blockchain-specific matchers**: Clean, readable assertions for smart contract testing
+- **Balance assertions**: `expect(await contract.balanceOf(owner.address)).to.equal(1000)`
+- **Event testing**: `expect(transaction).to.emit(contract, "Transfer")`
+- **Revert testing**: `expect(contract.connect(addr1).withdraw()).to.be.revertedWith("Not owner")`
+- **Balance change testing**: `expect(tx).to.changeEtherBalance(addr1, ethers.parseEther("1"))`
+
+### Continuous Integration
+
+Tests run automatically on:
+- Pull requests modifying files in `eth/`
+- Pushes to `main` and `next` branches
+- Manual workflow dispatch
+
+All tests must pass with 100% success rate before merge.
+
 ## Run locally
 
 Run the local Ethereum hardhat node (resets on each restart):
@@ -82,7 +109,7 @@ OWNER=0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323 PROVER_ADDRESS=0x6B96F1A8D65eDe
 #### Upgrade
 
 ```bash
-SECRET_KEY=... ROLLUP_CONTRACT_ADDR=0x55d1cf90392c7b7a4dc131cab6916dba5799e77c ROLLUP_PROXY_ADMIN_ADDR=0x55a99a706d707d033c94ffe95838e332a9e5c220  POLYGON_URL=https://polygon-mainnet.g.alchemy.com/v2/UrFsshbLOrSG1_cPayD3OHHi0s066Shx yarn upgrade-rollup -- --network polygon
+SECRET_KEY=... ROLLUP_CONTRACT_ADDR=0x9b5df9a65c958d2d37ee1a11c1a691a2124b98d1 ROLLUP_PROXY_ADMIN_ADDR=0x55a99a706d707d033c94ffe95838e332a9e5c220  POLYGON_URL=https://polygon-mainnet.g.alchemy.com/v2/UrFsshbLOrSG1_cPayD3OHHi0s066Shx yarn upgrade-rollup -- --network polygon
 ```
 
 #### Addresses
@@ -99,60 +126,33 @@ OLD_ROLLUP_CONTRACT_ADDR=0x24baf24128af44f03d61a3e657b1cec298ef6cdc
   ownerAddress: '0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323',
   deployerIsProxyAdmin: true
 }
-AGGREGATE_VERIFIER_ADDR=0x11078b70ed4fcbc9625d9e90c017ac67e2c30dd5
-MINT_VERIFIER_ADDR=0x9fe035bc7cdfb1f604cf14de74897f0301167df2
-ROLLUP_V1_IMPL_ADDR=0x364e153ec91878dc9e52c370ab1f471ff4ba09f5
-ROLLUP_CONTRACT_ADDR=0x55d1cf90392c7b7a4dc131cab6916dba5799e77c
-ROLLUP_PROXY_ADMIN_ADDR=0x43aac3c779b26a210b8723bac2d70bd38a571506
+AGGREGATE_VERIFIER_ADDR=0x79efebbdb0dc14d3d6a359ad82aa772bb6f7fd2f
+ROLLUP_V1_IMPL_ADDR=0xb72119747056a8d0b732fe1c8b45b2d028d90c8b
+ROLLUP_CONTRACT_ADDR=0x9b5df9a65c958d2d37ee1a11c1a691a2124b98d1
+ROLLUP_PROXY_ADMIN_ADDR=0x2b931b2c9ea3eb2ce5afd393a7dbb5aadd92fad0
 ```
 
 
 ### Mainnet
 
 ```bash
-OWNER=0x230Dfb03F078B0d5E705F4624fCC915f3126B40f PROVER_ADDRESS=0x5343b904bf837befb2f5a256b0cd5fbf30503d38 VALIDATORS=0x41582701cb3117680687df80bd5a2ca971bda964,0x75eadc4a85ee07e3b60610dc383eab1b27b1c4c1,0x53b385c35d7238d44dfd591eee94fee83f6711de,0x05dc3d71e2a163e6926956bc0769c5cb8a6b9d1a,0x581c5d92e35e51191a982ebd803f92742e3c9fe3,0xbb82aef611b513965371b3d33c4d3b6c8b926f24,0xeacb0b7e37709bafb4204c0c31a2919212049975,0xf9d65db5f8952bee5ea990df79a0032eda0752b7,0x662b7930b201fbe11bcef3cdef6e8f2c8ed4983a,0x68a78d978497b0a87ff8dbeaffae8e68ad4c39dc POLYGON_URL=https://polygon-mainnet.g.alchemy.com/v2/UrFsshbLOrSG1_cPayD3OHHi0s066Shx SECRET_KEY=<SECRET_KEY> yarn deploy -- --network polygon
+OWNER=0x230Dfb03F078B0d5E705F4624fCC915f3126B40f PROVER_ADDRESS=0x5343B904Bf837Befb2f5A256B0CD5fbF30503D38 VALIDATORS=0x41582701CB3117680687Df80bD5a2ca971bDA964 POLYGON_URL=https://polygon-mainnet.g.alchemy.com/v2/UrFsshbLOrSG1_cPayD3OHHi0s066Shx SECRET_KEY=<secret_key> yarn deploy -- --network polygon
 ```
-
-#### Temp Deploy
-
-```bash
-OWNER=0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323 PROVER_ADDRESS=0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323 VALIDATORS=0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323 POLYGON_URL=https://polygon-mainnet.g.alchemy.com/v2/UrFsshbLOrSG1_cPayD3OHHi0s066Shx SECRET_KEY=<SECRET_KEY> yarn deploy -- --network polygon
-```
-
-(using testnet key for now, we will redeploy with mainnet keys before external release)
-
-{
-  proverAddress: '0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323',
-  validators: [ '0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323' ],
-  ownerAddress: '0x6B96F1A8D65eDe8AD688716078B3DD79f9BD7323',
-  deployerIsProxyAdmin: true
-}
-AGGREGATE_VERIFIER_ADDR=0xf6941ea04d29eed53de63021acddabdf02270735
-MINT_VERIFIER_ADDR=0xe572f601ab078940bd4bfe004754ad54538c79e1
-ROLLUP_V1_IMPL_ADDR=0x383881a7597eec5d0044e49d709539fc6952a983
-ROLLUP_CONTRACT_ADDR=0xda9afe961b09290dcff632347866a6ce97d36df1
-ROLLUP_PROXY_ADMIN_ADDR=0xbbf8258e8405770a4e739cf03d9aeae4d674ef14
 
 
 #### Addresses
 
 ```
-USDC_CONTRACT_ADDR=0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
-AGGREGATE_BIN_ADDR=0x31063c00ad62f9090abb9308f4549a1dee4a6362
-AGGREGATE_VERIFIER_ADDR=0x9d9fe636a329a07d26b5c5e8411b278462f5f325
-MINT_BIN_ADDR=0xe025bb7ce28a4565a890a8d708faf9dd48ea1678
-MINT_VERIFIER_ADDR=0xe938b6c17a39e80c7630040df0d2dbe794d42534
-BURN_BIN_ADDR=0x4449d93873f7523d1b6cdfaa5a792e0867ca3a17
-BURN_VERIFIER_ADDR=0x36e4a9f800e07a4aa6647c83e97f7e47b8028895
-ROLLUP_V1_CONTRACT_ADDR=0x470e6986d9a54b498f4fa39ee118d25d52cc0a19
-ROLLUP_CONTRACT_ADDR=0x4cbb5041df8d815d752239960fba5e155ba2687e
-ROLLUP_PROXY_ADMIN_ADDR=0xe022130f28c4e6ddf1da5be853a185fbeb84d795
-BURN_TO_ADDRESS_ROUTER_CONTRACT_ADDR=0x8e93495fb707785af8c1345858e4898c2d005f7b
-BURN_V2_BIN_ADDR=0x2c103552a8f311cd6e35c2ca69e2f42e812c12d0
-BURN_VERIFIER_V2_ADDR=0x51c77c8b99aab9d6c83a4deb1247c528325e5c0b
-ROLLUP_V5_CONTRACT_ADDR=0x451a98322400d2a9018303cc66a68b3d903a3329
-ROLLUP_V6_CONTRACT_ADDR=0x3a58033501778babcd785cd89c054f16fa9b1f2b
-ACROSS_WITH_AUTHORIZATION_CONTRACT_ADDR=0xf5bf1a6a83029503157bb3761488bb75d64002e7
+{
+  proverAddress: '0x5343B904Bf837Befb2f5A256B0CD5fbF30503D38',
+  validators: [ '0x41582701CB3117680687Df80bD5a2ca971bDA964' ],
+  ownerAddress: '0x230Dfb03F078B0d5E705F4624fCC915f3126B40f',
+  deployerIsProxyAdmin: false
+}
+AGGREGATE_VERIFIER_ADDR=0x4eb939ae2d1df8a1e31bbedd9283571852415834
+ROLLUP_V1_IMPL_ADDR=0xfee72fcc4de2ad2972da8fa6cc388a1117147b28
+ROLLUP_CONTRACT_ADDR=0xcd92281548df923141fd9b690c7c8522e12e76e6
+ROLLUP_PROXY_ADMIN_ADDR=0x2db9ce1c38d18c3356d10afe367213007e2ce2d4
 ```
 
 #### Upgrade
@@ -169,6 +169,29 @@ Example without a specified network:
 
 ```bash
 SECRET_KEY=... ROLLUP_CONTRACT_ADDR=<proxy_contract_addr> ROLLUP_PROXY_ADMIN_ADDR=<proxy_admin_contract_addr> yarn upgrade-rollup
+```
+
+## Security Improvements
+
+### Block Height Validation (ENG-4064)
+
+The `verifyRollup` function in `contracts/rollup2/RollupV1.sol` now includes validation to ensure new block heights are strictly greater than the current block height. This prevents:
+
+- **Rollback Attacks**: Malicious actors cannot submit blocks with decreasing heights
+- **Replay Attacks**: Same block height cannot be reused
+- **Sequencing Integrity**: Maintains proper rollup block ordering
+- **State Inconsistency**: Prevents breaking dependent systems expecting monotonic height increases
+
+The validation is implemented as:
+```solidity
+require(height > blockHeight, "RollupV1: New block height must be greater than current");
+```
+
+### Testing
+
+Run the security tests with:
+```bash
+yarn test test/SimpleBlockHeightTest.test.ts
 ```
 
 ## Regenerating EVM aggregate proof verifier

@@ -1,9 +1,9 @@
 #[cfg(test)]
 pub mod rollup {
     use element::Element;
-    use rand::{rngs::OsRng, RngCore};
+    use rand::{RngCore, rngs::OsRng};
     use smirk::Tree;
-    use zk_primitives::{get_address_for_private_key, InputNote, MerklePath, Note};
+    use zk_primitives::{InputNote, MerklePath, Note, get_address_for_private_key};
 
     /// Depth expected by all current circuits & tests (see
     /// `verify_transfers`, `burn_to_*`, etc.).
@@ -106,11 +106,12 @@ pub mod rollup {
             get_address_for_private_key(self.pk)
         }
 
-        pub fn new_note(&self, amount: u64, kind: Element) -> Note {
+        pub fn new_note(&self, amount: u64, contract: Element) -> Note {
             Note {
+                kind: Element::new(2),
                 value: Element::new(amount),
                 address: self.address(),
-                kind,
+                contract,
                 psi: Element::new(0),
             }
         }

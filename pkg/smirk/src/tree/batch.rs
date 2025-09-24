@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use element::Element;
 
-use crate::{hash_cache::HashCache, Batch, Collision, CollisionError, Tree};
+use crate::{Batch, Collision, CollisionError, Tree, hash_cache::HashCache};
 
 impl<const DEPTH: usize, V, C: HashCache> Tree<DEPTH, V, C> {
     /// Check whether this batch contains any [`Element`]s which would collide with an [`Element`]
@@ -65,7 +65,9 @@ impl<const DEPTH: usize, V, C: HashCache> Tree<DEPTH, V, C> {
                 .any(|(_, lsb)| batch_remove_element_lsb == *lsb)
             {
                 if option_env!("TEMP_NOIR") != Some("1") {
-                    todo!("we should return something else than collision error here. This is an error that happens if the user wants to remove an element that's not in the tree");
+                    todo!(
+                        "we should return something else than collision error here. This is an error that happens if the user wants to remove an element that's not in the tree"
+                    );
                 }
 
                 error.push(Collision {

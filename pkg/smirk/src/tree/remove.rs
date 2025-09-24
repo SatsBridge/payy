@@ -1,4 +1,4 @@
-use crate::{hash_cache::HashCache, Batch, CollisionError, Tree};
+use crate::{Batch, CollisionError, Tree, hash_cache::HashCache};
 use element::Element;
 
 impl<const DEPTH: usize, V, C> Tree<DEPTH, V, C> {
