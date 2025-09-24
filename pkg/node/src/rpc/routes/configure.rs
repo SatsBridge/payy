@@ -1,4 +1,4 @@
-use super::{blocks, element, health, height, merkle, smirk, stats, txn, State};
+use super::{State, blocks, element, health, height, merkle, smirk, stats, txn};
 use actix_web::web;
 
 pub fn configure_routes(state: State) -> Box<dyn FnOnce(&mut web::ServiceConfig)> {

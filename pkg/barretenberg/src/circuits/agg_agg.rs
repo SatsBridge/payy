@@ -1,23 +1,23 @@
 use super::{AGG_UTXO_VERIFICATION_KEY, AGG_UTXO_VERIFICATION_KEY_HASH};
+use crate::Result;
 use crate::backend::DefaultBackend;
 use crate::circuits::get_bytecode_from_program;
 use crate::util::write_to_temp_file;
-use crate::verify::{verify, VerificationKey, VerificationKeyHash};
-use crate::Result;
+use crate::verify::{VerificationKey, VerificationKeyHash, verify};
 use crate::{
     prove::prove,
     traits::{Prove, Verify},
 };
 use element::Base;
 use lazy_static::lazy_static;
-use noirc_abi::{input_parser::InputValue, InputMap};
+use noirc_abi::{InputMap, input_parser::InputValue};
 use noirc_artifacts::program::ProgramArtifact;
 use noirc_driver::CompiledProgram;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use zk_primitives::{
-    bytes_to_elements, AggAgg, AggAggProof, AggAggProofBytes, AggAggPublicInput, AggUtxoProof,
-    ToBytes,
+    AggAgg, AggAggProof, AggAggProofBytes, AggAggPublicInput, AggUtxoProof, ToBytes,
+    bytes_to_elements,
 };
 
 const PROGRAM: &str = include_str!("../../../../fixtures/programs/agg_agg.json");
@@ -37,14 +37,12 @@ lazy_static! {
 }
 
 // AggAgg public input fields:
-// - verification_key_hash: Base (1 field)
 // - old_root: Base (1 field)
 // - new_root: Base (1 field)
 // - commit_hash: Base (1 field)
-// - messages: Vec<Base> (36 fields => 2 proofs * 18 messages each)
-// - kzg: Vec<Base> (16 fields)
-// Total: 56 fields
-const AGG_AGG_PUBLIC_INPUTS_COUNT: usize = 1 + 1 + 1 + 1 + 36 + 16;
+// - messages: Vec<Base> (30 fields => 2 proofs * 15 messages each)
+// Total: 33 fields
+const AGG_AGG_PUBLIC_INPUTS_COUNT: usize = 1 + 1 + 1 + 30;
 
 impl Prove for AggAgg {
     type Proof = AggAggProof;
@@ -69,25 +67,23 @@ impl Prove for AggAgg {
         assert_eq!(
             public_inputs.len(),
             AGG_AGG_PUBLIC_INPUTS_COUNT,
-            "Public inputs must be {} elements",
-            AGG_AGG_PUBLIC_INPUTS_COUNT
+            "Public inputs must be {AGG_AGG_PUBLIC_INPUTS_COUNT} elements"
         );
         assert_eq!(
             raw_proof.len(),
-            440 * 32,
-            "Proof must be 440 elements of 32 bytes"
+            508 * 32,
+            "Proof must be 508 elements of 32 bytes"
         );
 
         let p = AggAggProof {
             proof: AggAggProofBytes(raw_proof),
             public_inputs: AggAggPublicInput {
-                verification_key_hash: public_inputs[0],
-                old_root: public_inputs[1],
-                new_root: public_inputs[2],
-                commit_hash: public_inputs[3],
-                messages: public_inputs[4..4 + 6 * 6].to_vec(),
+                old_root: public_inputs[0],
+                new_root: public_inputs[1],
+                commit_hash: public_inputs[2],
+                messages: public_inputs[3..3 + 6 * 5].to_vec(),
             },
-            kzg: public_inputs[public_inputs.len() - 16..].to_vec(),
+            kzg: vec![],
         };
         Ok(p)
     }
@@ -102,7 +98,7 @@ impl Verify for AggAggProof {
 #[derive(Debug, Clone)]
 pub struct AggAggInput {
     pub proofs: [UtxoAggProof; 2],
-    pub messages: [Base; 2 * 18],
+    pub messages: [Base; 2 * 15],
     pub old_root: Base,
     pub new_root: Base,
     pub commit_hash: Base,
@@ -123,7 +119,7 @@ impl From<&AggAgg> for AggAggInput {
     }
 }
 
-fn extract_messages(agg_agg_proofs: &[AggUtxoProof; 2]) -> [Base; 2 * 18] {
+fn extract_messages(agg_agg_proofs: &[AggUtxoProof; 2]) -> [Base; 2 * 15] {
     agg_agg_proofs
         .iter()
         .flat_map(|proof| {
@@ -180,7 +176,7 @@ impl From<AggAggInput> for InputMap {
 
 #[derive(Debug, Clone)]
 pub struct UtxoAggProof {
-    pub proof: [Base; 456],
+    pub proof: [Base; 508],
     pub old_root: Base,
     pub new_root: Base,
     pub commit_hash: Base,

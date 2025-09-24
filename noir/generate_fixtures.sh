@@ -26,7 +26,7 @@ mkdir -p $REPO_ROOT/fixtures/keys
 
 # Get all program names from the workspace - the ordering of these is important,
 # as the hash from utxo is used in agg_utxo, and agg_utxo used in agg_agg
-PROGRAMS=("utxo" "agg_utxo" "agg_agg" "signature" "points")
+PROGRAMS=("utxo" "agg_utxo" "agg_agg" "signature" "points" "migrate")
 
 # Define which programs should use the recursive flag
 RECURSIVE_PROGRAMS=("agg_utxo" "utxo")

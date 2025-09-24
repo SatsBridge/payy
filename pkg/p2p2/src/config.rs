@@ -1,8 +1,8 @@
 use std::{collections::HashSet, net::IpAddr, path::Path, sync::OnceLock};
 
 use figment::{
-    providers::{Env, Format, Toml},
     Figment,
+    providers::{Env, Format, Toml},
 };
 use libp2p::Multiaddr;
 use serde::{Deserialize, Deserializer};
@@ -57,7 +57,7 @@ impl Config {
     ///
     ///  Use underscores to separate identifiers, and hyphens to separate words within an
     ///  identifier
-    pub fn from_env<P: AsRef<Path>>(path: P) -> Result<Config, figment::Error> {
+    pub fn from_env<P: AsRef<Path>>(path: P) -> Result<Config, Box<figment::Error>> {
         tracing::info!("loading config from {}", path.as_ref().to_string_lossy());
 
         Figment::new()
@@ -65,6 +65,7 @@ impl Config {
             .merge(Env::prefixed("P2P_").split("_"))
             .join(Toml::string(Self::DEFAULT_STR))
             .extract()
+            .map_err(Box::new)
     }
 }
 

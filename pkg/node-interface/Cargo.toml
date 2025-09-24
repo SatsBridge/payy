@@ -1,7 +1,7 @@
 [package]
 name = "node-interface"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 element = { workspace = true }
@@ -16,3 +16,10 @@ serde = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+[dependencies.ts-rs]
+workspace = true
+optional = true
+
+[features]
+ts-rs = ["dep:ts-rs", "element/ts-rs", "primitives/ts-rs", "zk-primitives/ts-rs"]

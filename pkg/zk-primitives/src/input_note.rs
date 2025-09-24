@@ -1,4 +1,4 @@
-use crate::{decode_activity_url_payload, note::Note, NoteURLPayload};
+use crate::{NoteURLPayload, decode_activity_url_payload, note::Note};
 use element::Element;
 use serde::{Deserialize, Serialize};
 

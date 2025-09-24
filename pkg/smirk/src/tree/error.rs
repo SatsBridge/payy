@@ -84,7 +84,11 @@ impl core::fmt::Display for Collision {
             StructName::Tree => "tree",
         };
 
-        write!(f, "collision: tried to insert {inserted}, but {in_tree} was already in the {struct_name}, which have the same least significant {} bits", depth - 1)
+        write!(
+            f,
+            "collision: tried to insert {inserted}, but {in_tree} was already in the {struct_name}, which have the same least significant {} bits",
+            depth - 1
+        )
     }
 }
 

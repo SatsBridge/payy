@@ -12,18 +12,13 @@ use serde::{Deserialize, Serialize};
 pub struct AggAgg {
     /// The proofs for the AggAgg transaction
     pub proofs: [AggUtxoProof; 2],
-    /// Hash of the proofs being verified in agg_agg proof
-    pub verification_key_hash: Element,
 }
 
 impl AggAgg {
     /// Create a new AggAgg
     #[must_use]
-    pub fn new(proofs: [AggUtxoProof; 2], verification_key_hash: Element) -> Self {
-        Self {
-            proofs,
-            verification_key_hash,
-        }
+    pub fn new(proofs: [AggUtxoProof; 2]) -> Self {
+        Self { proofs }
     }
 
     /// Get the old root of the AggAgg transaction
@@ -35,7 +30,11 @@ impl AggAgg {
     /// Get the new root of the AggAgg transaction
     #[must_use]
     pub fn new_root(&self) -> Element {
-        self.proofs[1].public_inputs.new_root
+        if self.proofs[1].public_inputs.is_padding() {
+            self.proofs[0].public_inputs.new_root
+        } else {
+            self.proofs[1].public_inputs.new_root
+        }
     }
 
     /// Get the messages from the UTXO proofs
@@ -51,7 +50,6 @@ impl AggAgg {
     #[must_use]
     pub fn public_inputs(&self) -> AggAggPublicInput {
         AggAggPublicInput {
-            verification_key_hash: self.verification_key_hash,
             old_root: self.old_root(),
             new_root: self.new_root(),
             commit_hash: self.commit_hash(),
@@ -82,8 +80,6 @@ pub struct AggAggProofBytes(
 /// The public input for a AggAgg transaction
 #[derive(Default, Debug, Clone, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct AggAggPublicInput {
-    /// Verification key hash agg_utxo
-    pub verification_key_hash: Element,
     /// The old root of the tree
     pub old_root: Element,
     /// The new root of the tree
@@ -98,9 +94,8 @@ impl AggAggPublicInput {
     /// Convert the AggAggPublicInput to a AggAggPublicInputBytes
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(32 * (1 + 1 + 1 + 1 + 2 * 18));
+        let mut bytes = Vec::with_capacity(32 * (1 + 1 + 1 + 2 * 15));
 
-        bytes.extend(self.verification_key_hash.to_be_bytes());
         bytes.extend(self.old_root.to_be_bytes());
         bytes.extend(self.new_root.to_be_bytes());
         bytes.extend(self.commit_hash.to_be_bytes());
@@ -126,7 +121,6 @@ pub struct AggAggProof {
 
 impl ToBytes for AggAggProof {
     /// Convert the AggAggProof to a AggAggProofBytes
-    #[must_use]
     fn to_bytes(&self) -> Vec<u8> {
         // TODO: move to impl detail of proving backend
         let pi = self.public_inputs.to_bytes();

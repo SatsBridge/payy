@@ -1,16 +1,16 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use futures::StreamExt;
 use futures::channel::mpsc::{self, Sender, TrySendError};
 use futures::stream::Stream;
-use futures::StreamExt;
 use parking_lot::deadlock;
 use rand::Rng;
+use solid::App;
+use solid::Solid;
 use solid::config::SolidConfig;
 use solid::event::SolidEvent;
 use solid::proposal::ManifestContent;
 use solid::proposal::{Manifest, ProposalAccept};
 use solid::test::app::{InsecurePeerSigner, TestApp, TestAppTxnState, UncheckedPeerId as PeerId};
-use solid::App;
-use solid::Solid;
 use solid::{Peer, PeerSigner};
 use std::collections::HashMap;
 // use std::mem;
@@ -22,7 +22,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use tracing::{error, info, info_span, Instrument};
+use tracing::{Instrument, error, info, info_span};
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
 
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
@@ -249,19 +249,21 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
     // Check for deadlocks
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(10));
-        let deadlocks = deadlock::check_deadlock();
-        if deadlocks.is_empty() {
-            continue;
-        }
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                continue;
+            }
 
-        println!("{} deadlocks detected", deadlocks.len());
-        for (i, threads) in deadlocks.iter().enumerate() {
-            println!("Deadlock #{i}");
-            for t in threads {
-                println!("Thread Id {:#?}", t.thread_id());
-                println!("{:#?}", t.backtrace());
+            println!("{} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                println!("Deadlock #{i}");
+                for t in threads {
+                    println!("Thread Id {:#?}", t.thread_id());
+                    println!("{:#?}", t.backtrace());
+                }
             }
         }
     });

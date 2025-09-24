@@ -1,16 +1,16 @@
-use std::future::{ready, Ready};
+use std::future::{Ready, ready};
 
-use crate::error::HTTPError;
+use crate::error::{HTTPError, Severity};
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     Error, ResponseError,
+    dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
 };
 use futures_util::future::LocalBoxFuture;
 use tracing::{error, warn};
 
-fn log_http_error(severity: &crate::error::Severity, err: &HTTPError, path: &str, method: &str) {
+fn log_http_error(severity: &Severity, err: &HTTPError, path: &str, method: &str) {
     match severity {
-        crate::error::Severity::Warn => {
+        Severity::Warn => {
             warn!(
                 path,
                 method,
@@ -22,7 +22,7 @@ fn log_http_error(severity: &crate::error::Severity, err: &HTTPError, path: &str
                 "HTTP Error"
             );
         }
-        crate::error::Severity::Error => {
+        Severity::Error => {
             error!(
                 path,
                 method,

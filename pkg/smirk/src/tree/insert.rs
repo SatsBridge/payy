@@ -1,4 +1,4 @@
-use crate::{batch, hash_cache::HashCache, CollisionError, Path, Tree};
+use crate::{CollisionError, Path, Tree, batch, hash_cache::HashCache};
 use element::Element;
 
 impl<const DEPTH: usize, V, C> Tree<DEPTH, V, C> {
@@ -140,7 +140,7 @@ mod tests {
 
     use test_strategy::proptest;
 
-    use crate::{smirk, tree::error::StructName, Collision};
+    use crate::{Collision, smirk, tree::error::StructName};
 
     use super::*;
 

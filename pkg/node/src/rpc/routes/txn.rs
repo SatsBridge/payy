@@ -1,5 +1,5 @@
 use super::State;
-use crate::{node, BlockFormat};
+use crate::{BlockFormat, Error, node};
 use actix_web::web;
 use barretenberg::Verify;
 use block_store::BlockListOrder;
@@ -107,16 +107,22 @@ pub async fn list_txns(
 ) -> HttpResult<web::Json<ListTxnsResponse>> {
     tracing::info!(method = "list_txns", ?path, ?query, "Incoming request");
 
-    let block_fetcher =
-        |cursor: &Option<CursorChoice<BlockHeight>>, order: BlockListOrder, limit: usize| {
-            state
+    let make_block_fetcher = |s: web::Data<State>| {
+        move |cursor: &Option<CursorChoice<BlockHeight>>,
+              order: BlockListOrder,
+              limit: usize|
+              -> Result<std::vec::IntoIter<Result<BlockFormat, Error>>, Error> {
+            let iter = s
                 .node
-                .fetch_blocks_non_empty_paginated(cursor, order, limit)
-        };
+                .fetch_blocks_non_empty_paginated(cursor, order, limit)?;
+            Ok(iter.collect::<Vec<_>>().into_iter())
+        }
+    };
 
     let max_height = state.node.max_height();
 
-    let (cursor, transactions) = list_txns_inner(block_fetcher, &query, max_height)?;
+    let (cursor, transactions) =
+        list_txns_inner(make_block_fetcher(state.clone()), &query, max_height)?;
 
     let (cursor, transactions) = if transactions.is_empty() && query.poll {
         let towards_newer_height = match (&query.order, query.cursor.as_deref()) {
@@ -152,7 +158,7 @@ pub async fn list_txns(
                     }
                     _ = non_empty_block_stream.next() => {
                         list_txns_inner(
-                            block_fetcher,
+                            make_block_fetcher(state.clone()),
                             &query,
                             max_height,
                         )?
@@ -282,7 +288,7 @@ pub async fn get_txn(
     let (txn, metadata) = state
         .node
         .get_txn(txn_hash.to_be_bytes())?
-        .ok_or(crate::Error::Rpc(RpcError::TxnNotFound(ElementData {
+        .ok_or(Error::Rpc(RpcError::TxnNotFound(ElementData {
             element: txn_hash,
         })))?;
 
@@ -341,7 +347,9 @@ mod tests {
             |cursor: &Option<CursorChoice<BlockHeight>>, order: BlockListOrder, limit: usize| {
                 Ok(store
                     .list_paginated(cursor, order, limit)?
-                    .map(|r| r.map(|(_, block)| block).map_err(node::Error::from)))
+                    .map(|r| r.map(|(_, block)| block).map_err(node::Error::from))
+                    .collect::<Vec<_>>()
+                    .into_iter())
             };
 
         let (_pagination, txns) = list_txns_inner(

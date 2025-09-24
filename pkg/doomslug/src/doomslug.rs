@@ -267,8 +267,7 @@ impl DoomslugApprovalsTrackersAtHeight {
     /// * `now`      - the current timestamp
     /// * `approval` - the approval to be processed
     /// * `stakes`   - all the stakes of all the block producers in the current epoch
-    /// * `threshold_mode` - how many approvals are needed to produce a block. Is used to compute
-    ///                the return value
+    /// * `threshold_mode` - how many approvals are needed to produce a block. Is used to compute the return value
     ///
     /// # Returns
     /// Same as `DoomslugApprovalsTracker::process_approval`
@@ -698,8 +697,7 @@ impl Doomslug {
     /// # Arguments:
     /// * `now`               - current timestamp
     /// * `target_height`     - the height for which the readiness is checked
-    /// * `has_enough_chunks` - if not, we will wait for T(h' / 6) even if we have 2/3 approvals &
-    ///                         have the previous block ds-final.
+    /// * `has_enough_chunks` - if not, we will wait for T(h' / 6) even if we have 2/3 approvals & have the previous block ds-final.
     #[must_use]
     pub fn ready_to_produce_block(
         &mut self,

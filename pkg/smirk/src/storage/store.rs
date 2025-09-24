@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rocksdb::{IteratorMode, WriteBatch, DB};
+use rocksdb::{DB, IteratorMode, WriteBatch};
 use wire_message::WireMessage;
 
 use crate::{
-    hash_cache::{KnownHash, SimpleHashCache},
     Tree,
+    hash_cache::{KnownHash, SimpleHashCache},
 };
 
 use super::format::{KeyFormat, KeyV2, ValueFormat, ValueV2};

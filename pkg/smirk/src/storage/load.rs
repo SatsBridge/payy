@@ -3,18 +3,18 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use element::Element;
-use rocksdb::{IteratorMode, DB};
+use rocksdb::{DB, IteratorMode};
 use wire_message::WireMessage;
 
 use crate::{
+    Batch, Tree,
     hash_cache::{KnownHash, SimpleHashCache},
     storage::format::{KeyV2, ValueFormat},
-    Batch, Tree,
 };
 
 use super::{
-    format::{KeyFormat, ValueV2},
     Error,
+    format::{KeyFormat, ValueV2},
 };
 
 pub(super) fn load_tree<const DEPTH: usize, V>(

@@ -1,4 +1,4 @@
-use crate::{event::SolidEvent, App, Solid};
+use crate::{App, Solid, event::SolidEvent};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio_stream::Stream;

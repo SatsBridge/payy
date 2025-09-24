@@ -8,7 +8,7 @@ use primitives::{block_height::BlockHeight, pagination::CursorChoice};
 use rocksdb::DB;
 use wire_message::WireMessage;
 
-use crate::{list::List, Block, Error, Result};
+use crate::{Block, Error, Result, list::List};
 
 pub(crate) trait StoreKey: Clone {
     fn to_key(&self) -> Key;
@@ -131,6 +131,7 @@ pub enum Key {
     NonEmptyBlock(KeyNonEmptyBlock),
     LockedElement([u8; 32]),
     ElementHistory((element::Element, ElementHistoryKind)),
+    MintHash(element::Element),
 }
 
 // TODO: this might be confusing,
@@ -171,6 +172,7 @@ impl Key {
             Self::NonEmptyBlock(_) => 6,
             Self::LockedElement(_) => 7,
             Self::ElementHistory(_) => 8,
+            Self::MintHash(_) => 9,
         }
     }
 
@@ -199,6 +201,9 @@ impl Key {
             Self::ElementHistory((element, kind)) => {
                 out.extend_from_slice(&element.to_be_bytes());
                 out.extend_from_slice(&[kind.to_byte()]);
+            }
+            Self::MintHash(mint_hash) => {
+                out.extend_from_slice(&mint_hash.to_be_bytes());
             }
         }
 
@@ -237,6 +242,12 @@ impl Key {
                 let element = element::Element::from_be_bytes(*element_arr);
                 let kind = ElementHistoryKind::from_byte(bytes[32]).unwrap();
                 Ok(Self::ElementHistory((element, kind)))
+            }
+            9 => {
+                let mint_hash_arr: &[u8; 32] =
+                    bytes[0..32].try_into().map_err(|_| Error::InvalidKey)?;
+                let mint_hash = element::Element::from_be_bytes(*mint_hash_arr);
+                Ok(Self::MintHash(mint_hash))
             }
             _ => Err(Error::InvalidKey),
         }

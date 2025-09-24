@@ -1,5 +1,5 @@
 use crate::Mode;
-use crate::{types::BlockHeight, BlockFormat, PersistentMerkleTree, Result};
+use crate::{BlockFormat, PersistentMerkleTree, Result, types::BlockHeight};
 use barretenberg::Verify;
 use block_store::BlockStore;
 use element::Element;
@@ -22,20 +22,24 @@ pub fn validate_txn(
         Err(RpcError::InvalidProof)?;
     }
 
+    let public_inputs = &utxo_proof.public_inputs;
+
+    let [input_0, input_1] = public_inputs.input_commitments;
+    if input_0 != Element::ZERO && input_0 == input_1 {
+        Err(RpcError::TxnDuplicateInputCommitments(ElementsVecData {
+            elements: vec![input_0],
+        }))?;
+    }
+
+    let [output_0, output_1] = public_inputs.output_commitments;
+    if output_0 != Element::ZERO && output_0 == output_1 {
+        Err(RpcError::TxnDuplicateOutputCommitments(ElementsVecData {
+            elements: vec![output_0],
+        }))?;
+    }
+
     // Check if any of the txn inserts are already in the tree
     let tree = notes_tree.tree();
-
-    for leaf in utxo_proof.public_inputs.input_commitments {
-        if leaf >= Element::MODULUS {
-            Err(RpcError::InvalidElementSize(ElementData { element: leaf }))?;
-        }
-
-        if leaf != Element::ZERO && !tree.contains_element(&leaf) {
-            Err(RpcError::TxnInputCommitmentsNotInTree(ElementsVecData {
-                elements: vec![leaf],
-            }))?;
-        }
-    }
 
     for leaf in utxo_proof.public_inputs.output_commitments {
         if leaf >= Element::MODULUS {
@@ -58,6 +62,35 @@ pub fn validate_txn(
                     },
                 ))?;
             }
+        }
+    }
+
+    for leaf in utxo_proof.public_inputs.input_commitments {
+        if leaf >= Element::MODULUS {
+            Err(RpcError::InvalidElementSize(ElementData { element: leaf }))?;
+        }
+
+        if leaf != Element::ZERO && !tree.contains_element(&leaf) {
+            Err(RpcError::TxnInputCommitmentsNotInTree(ElementsVecData {
+                elements: vec![leaf],
+            }))?;
+        }
+    }
+
+    let mint_hash = match utxo_proof.kind_messages() {
+        zk_primitives::UtxoKindMessages::Mint(utxo_kind_mint_messages) => {
+            Some(utxo_kind_mint_messages.mint_hash)
+        }
+        zk_primitives::UtxoKindMessages::Burn(_) => None,
+        zk_primitives::UtxoKindMessages::None => None,
+    };
+
+    if let Some(mint_hash) = mint_hash {
+        let mint_hash_in_db = block_store.get_mint_hash(mint_hash)?;
+        if mint_hash_in_db.is_some() {
+            Err(RpcError::MintHashAlreadyExists(ElementData {
+                element: mint_hash,
+            }))?;
         }
     }
 

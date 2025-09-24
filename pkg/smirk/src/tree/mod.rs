@@ -42,6 +42,7 @@ pub mod proptest;
 #[derive(Debug, Clone)]
 pub struct Tree<const DEPTH: usize, V, C = NoopHashCache> {
     /// The tree-like representation
+    #[expect(clippy::struct_field_names)]
     tree: tree_repr::Node,
     entries: BTreeMap<Element, V>,
     cache: C,

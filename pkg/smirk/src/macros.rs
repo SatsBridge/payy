@@ -100,19 +100,15 @@ macro_rules! batch {
 /// [`Element`]: element::Element
 #[macro_export]
 macro_rules! element {
-    ($e:literal) => {{
-        element::Element::new($e)
-    }};
-    ($e:expr) => {{
-        element::Element::from($e)
-    }};
+    ($e:literal) => {{ element::Element::new($e) }};
+    ($e:expr) => {{ element::Element::from($e) }};
 }
 
 #[cfg(test)]
 mod tests {
     use element::Element;
 
-    use crate::{smirk, Batch, Tree};
+    use crate::{Batch, Tree, smirk};
 
     type T = Tree<64, i32>;
     type B = Batch<64, i32>;

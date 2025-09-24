@@ -11,8 +11,8 @@ pub use self::hash::*;
 pub use self::header::*;
 pub use self::manifest::*;
 
-use crate::errors::Result;
 use crate::Error;
+use crate::errors::Result;
 use crate::{config::AcceptThreshold, traits::App};
 use std::collections::BTreeMap;
 
@@ -107,11 +107,9 @@ impl<A: App> Proposal<A> {
     }
 
     pub fn accepts_for_skip(&self, skips: &u64) -> Option<Vec<ProposalAccept<A::P>>> {
-        self.incoming_accepts.get(skips).map(|p| {
-            p.iter()
-                .map(|(_, accept)| accept.clone())
-                .collect::<Vec<_>>()
-        })
+        self.incoming_accepts
+            .get(skips)
+            .map(|p| p.values().cloned().collect::<Vec<_>>())
     }
 
     /// Checks that we have just enough accepts for meeting the majority

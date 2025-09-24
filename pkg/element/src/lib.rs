@@ -10,6 +10,9 @@
 use ethnum::U256;
 pub use signed_element::SignedElement;
 
+#[cfg(feature = "ts-rs")]
+use ts_rs::TS;
+
 mod arith;
 mod collision;
 mod convert;
@@ -59,7 +62,13 @@ pub type Base = acvm::FieldElement;
 )]
 #[cfg_attr(feature = "diesel", diesel(sql_type = ::diesel::sql_types::Numeric))]
 #[cfg_attr(feature = "diesel", diesel(sql_type = ::diesel::sql_types::Text))]
-pub struct Element(#[cfg_attr(feature = "serde", serde(with = "serde"))] pub(crate) U256);
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
+pub struct Element(
+    #[cfg_attr(feature = "serde", serde(with = "serde"))]
+    #[cfg_attr(feature = "ts-rs", ts(as = "String"))]
+    pub(crate) U256,
+);
 
 impl Element {
     /// The zero element of the group (the additive identity)

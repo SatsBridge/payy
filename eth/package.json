@@ -7,12 +7,12 @@
     "test": "hardhat test",
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.ts",
-    "deploy:local": "yarn deploy --network localhost",
     "upgrade-rollup": "hardhat run scripts/upgrade.ts",
     "upgrade-rollup:local": "yarn upgrade-rollup --network localhost",
     "eth-node": "hardhat node"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "2.0.8",
     "@nomicfoundation/hardhat-ethers": "^3.0.5",
     "@nomicfoundation/hardhat-ignition": "^0.15.1",
     "@nomicfoundation/hardhat-ignition-viem": "^0.15.0",
@@ -34,7 +34,7 @@
     "eslint-plugin-promise": "^6.0.0",
     "ethereum-cryptography": "^2.1.2",
     "ethers": "^6.9.1",
-    "hardhat": "^2.24.1",
+    "hardhat": "^2.26.1",
     "hardhat-gas-reporter": "^1.0.8",
     "solidity-coverage": "^0.8.0",
     "ts-node": ">=8.0.0",

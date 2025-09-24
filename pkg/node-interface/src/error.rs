@@ -7,6 +7,9 @@ use rpc_error_convert::HTTPErrorConversion;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
+#[cfg(feature = "ts-rs")]
+use ts_rs::TS;
+
 /// Result for public errors from Payy Network
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -28,6 +31,8 @@ pub struct ElementData {
 
 /// Error data detailed the element related to the error
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct ElementsVecData {
     /// Element related to error
     pub elements: Vec<Element>,
@@ -101,11 +106,34 @@ pub enum RpcError {
     #[error("mint leaf is not in the contract")]
     MintIsNotInTheContract(ElementData),
 
+    /// Mint has already been spent on the Payy Network. This error occurs when attempting
+    /// to spend a mint that has already been rolled up. The smart contract has marked the mint as spent.
+    /// Each mint can only be spent once to prevent double-spending attacks. The client should check
+    /// their transaction history and avoid reusing spent mints.
+    #[already_exists("mint-is-already-spent")]
+    #[error("mint is already spent")]
+    MintIsAlreadySpent(ElementsVecData),
+
     /// Mint is in the contract on the base chain, but the minted amount is different
     /// to the txn proof sent. A new txn should be submitted with the correct values.
     #[bad_request("mint-in-contract-is-different")]
     #[error("mint in contract is different to provided txn proof")]
     MintInContractIsDifferent(Box<MintInContractIsDifferent>),
+
+    /// Transaction contains duplicate input commitments
+    #[bad_request("duplicate-input-commitments")]
+    #[error("transaction contains duplicate input commitments")]
+    TxnDuplicateInputCommitments(ElementsVecData),
+
+    /// Transaction contains duplicate output commitments
+    #[bad_request("duplicate-output-commitments")]
+    #[error("transaction contains duplicate output commitments")]
+    TxnDuplicateOutputCommitments(ElementsVecData),
+
+    /// Transaction uses a commitment that is already pending in the mempool
+    #[already_exists("commitment-already-pending")]
+    #[error("commitment already pending in another transaction")]
+    TxnCommitmentAlreadyPending(ElementsVecData),
 
     /// Prevent the user from accidentally burning to the zero address and therefore
     /// losing their funds
@@ -132,6 +160,11 @@ pub enum RpcError {
     #[bad_request("failed-to-parse-element")]
     #[error("invalid element")]
     FailedToParseElement(ElementData),
+
+    /// Mint hash already exists
+    #[already_exists("mint-hash-already-exists")]
+    #[error("mint hash already exists")]
+    MintHashAlreadyExists(ElementData),
 }
 
 #[cfg(test)]

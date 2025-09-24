@@ -1,6 +1,8 @@
-use crate::{network::NetworkEvent, utxo::validate_txn, Block, Error, NodeShared, Result};
+use crate::{
+    Block, Error, NodeShared, Result, mempool::AddError, network::NetworkEvent, utxo::validate_txn,
+};
 use ethereum_types::U64;
-use node_interface::{ElementData, MintInContractIsDifferent, RpcError};
+use node_interface::{ElementData, ElementsVecData, MintInContractIsDifferent, RpcError};
 use std::{sync::Arc, time::Duration};
 use tracing::{error, info, instrument};
 use zk_primitives::{UtxoKindMessages, UtxoProof};
@@ -47,12 +49,38 @@ impl NodeShared {
 
         self.send_all(NetworkEvent::Transaction(utxo.clone())).await;
 
-        let input_commitments = utxo.public_inputs.input_commitments.to_vec();
+        let mut changes = Vec::new();
+        for commitment in utxo
+            .public_inputs
+            .input_commitments
+            .into_iter()
+            .chain(utxo.public_inputs.output_commitments)
+        {
+            if commitment.is_zero() {
+                continue;
+            }
+            if !changes.contains(&commitment) {
+                changes.push(commitment);
+            }
+        }
 
-        // NOIR_TODO: is input commitments enough here?
-        self.mempool
-            .add_wait(utxo.hash(), utxo, input_commitments)
-            .await
+        let receiver = match self.mempool.add_with_listener(utxo.hash(), utxo, changes) {
+            Ok(receiver) => receiver,
+            Err(AddError::Conflict(conflict)) => {
+                return Err(RpcError::TxnCommitmentAlreadyPending(ElementsVecData {
+                    elements: vec![conflict],
+                })
+                .into());
+            }
+            Err(AddError::DuplicateKey) => {
+                return Err(RpcError::TxnCommitmentAlreadyPending(ElementsVecData {
+                    elements: vec![],
+                })
+                .into());
+            }
+        };
+
+        receiver.await.expect("recv error")
     }
 
     pub(super) async fn validate_transaction(&self, utxo: &UtxoProof) -> Result<()> {
@@ -85,6 +113,13 @@ impl NodeShared {
                     element: mint_msgs.mint_hash,
                 }))?;
             };
+
+            // Check if mint is already spent
+            if get_mint_res.spent {
+                return Err(RpcError::MintIsAlreadySpent(ElementsVecData {
+                    elements: utxo.public_inputs.output_commitments.to_vec(),
+                }))?;
+            }
 
             // Check mint amout/kind matches the submitted utxo proof
             if get_mint_res.amount != mint_msgs.value
@@ -122,8 +157,33 @@ impl NodeShared {
             return Ok(());
         }
 
-        let input_commitments = txn.public_inputs.input_commitments.to_vec();
-        self.mempool.add(txn.hash(), txn, input_commitments);
+        let mut changes = Vec::new();
+        for commitment in txn
+            .public_inputs
+            .input_commitments
+            .into_iter()
+            .chain(txn.public_inputs.output_commitments)
+        {
+            if commitment.is_zero() {
+                continue;
+            }
+            if !changes.contains(&commitment) {
+                changes.push(commitment);
+            }
+        }
+
+        match self.mempool.add(txn.hash(), txn, changes) {
+            Ok(()) => {}
+            Err(AddError::Conflict(conflict)) => {
+                return Err(RpcError::TxnCommitmentAlreadyPending(ElementsVecData {
+                    elements: vec![conflict],
+                })
+                .into());
+            }
+            Err(AddError::DuplicateKey) => {
+                return Ok(());
+            }
+        }
 
         Ok(())
     }

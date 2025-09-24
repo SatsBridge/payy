@@ -1,4 +1,4 @@
-use super::{error, State};
+use super::{State, error};
 use actix_web::web;
 use element::Element;
 use rpc::error::HttpResult;

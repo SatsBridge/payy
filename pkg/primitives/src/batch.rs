@@ -135,7 +135,7 @@ pub trait BatchProcessor {
     /// - Results are in the same order as the corresponding inputs
     /// - If partial processing is possible, consider whether to return partial results or an error
     async fn process_batch(&self, items: Vec<Self::Item>)
-        -> Result<Vec<Self::Result>, Self::Error>;
+    -> Result<Vec<Self::Result>, Self::Error>;
 }
 
 /// Configuration for the batch processor
@@ -363,8 +363,8 @@ impl<P: BatchProcessor + Send + Sync + 'static> Batch<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::sleep;
 
     // Custom error type for the test processor

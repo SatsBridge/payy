@@ -1,5 +1,12 @@
-use super::{txn::TxnWithInfo, State};
-use crate::node;
+use super::{State, txn::TxnWithInfo};
+use crate::{
+    Error,
+    block::{
+        Block as NodeBlock, BlockContent as NodeBlockContent, BlockHeader as NodeBlockHeader,
+        BlockState as NodeBlockState,
+    },
+    node,
+};
 use actix_web::web;
 use either::Either;
 use element::Element;
@@ -10,7 +17,7 @@ use primitives::{
     sig::Signature,
 };
 use rpc::error::HttpResult;
-use serde::{de::IntoDeserializer, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::IntoDeserializer};
 use wire_message::WireMessage;
 
 pub type BlockResponse = BlockWithInfo;
@@ -22,17 +29,17 @@ pub struct Block {
 }
 
 impl Block {
-    fn from_node_block(block: crate::block::Block, time: u64) -> Self {
-        let crate::block::Block { content, signature } = block;
-        let crate::block::BlockContent { header, state } = content;
-        let crate::block::BlockHeader {
+    fn from_node_block(block: NodeBlock, time: u64) -> Self {
+        let NodeBlock { content, signature } = block;
+        let NodeBlockContent { header, state } = content;
+        let NodeBlockHeader {
             height,
             last_block_hash,
             epoch_id,
             last_final_block_hash,
             approvals,
         } = header;
-        let crate::block::BlockState { root_hash, txns } = state;
+        let NodeBlockState { root_hash, txns } = state;
 
         Self {
             content: BlockContent {
@@ -121,11 +128,11 @@ pub async fn get_block(
         BlockIdentifier::Height(height) => state
             .node
             .get_block(height)?
-            .ok_or(crate::Error::BlockNotFound { block: height })?,
+            .ok_or(Error::BlockNotFound { block: height })?,
         BlockIdentifier::Hash(hash) => state
             .node
             .get_block_by_hash(hash)?
-            .ok_or(crate::Error::BlockHashNotFound { block: hash })?,
+            .ok_or(Error::BlockHashNotFound { block: hash })?,
     };
 
     let (block, metadata) = match block.upgrade(&mut ()).unwrap() {
@@ -227,7 +234,7 @@ pub async fn list_blocks(
 
     let (cursor, blocks) = Paginator::new(
         blocks.map(|r| {
-            let (block, metadata) = match r.map_err(node::Error::from)?.upgrade(&mut ()).unwrap() {
+            let (block, metadata) = match r?.upgrade(&mut ()).unwrap() {
                 node::BlockFormat::V1(_) => unreachable!("already upgraded"),
                 node::BlockFormat::V2(block, metadata) => (block, metadata),
             };

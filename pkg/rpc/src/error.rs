@@ -1,7 +1,7 @@
 use crate::code::ErrorCode;
 use actix_web::Responder;
 use actix_web::ResponseError;
-use actix_web::{http::header::ContentType, HttpResponse};
+use actix_web::{HttpResponse, http::header::ContentType};
 use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Debug;
@@ -12,10 +12,11 @@ pub type HttpResult<T> = std::result::Result<T, HTTPError>;
 /// Variant `Error` is the default error level.
 /// `Warn` is to be used for "expected" errors that we wish
 /// to avoid polluting the error logs.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Severity {
     Warn,
+    #[default]
     Error,
 }
 
@@ -54,10 +55,10 @@ impl std::fmt::Display for TryFromHTTPError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TryFromHTTPError::NoRpcErrorExpected(output) => {
-                write!(f, "No RPC error expected: {:?}", output)
+                write!(f, "No RPC error expected: {output:?}")
             }
             TryFromHTTPError::UnknownReason(reason) => {
-                write!(f, "Unknown error reason: {}", reason)
+                write!(f, "Unknown error reason: {reason}")
             }
             TryFromHTTPError::DeserializationError => write!(f, "Failed to deserialize error data"),
             TryFromHTTPError::MissingData => write!(f, "Error data is missing"),

@@ -85,7 +85,7 @@ mod test {
     use super::super::*;
     use super::*;
     use crate::proposal::{ProposalAccept, ProposalHeader};
-    use crate::test::util::{hash, ManifestContent};
+    use crate::test::util::{ManifestContent, hash};
     use crate::test::{
         app::{TestApp, UncheckedPeerId},
         util::{create_peers, peer, signer},

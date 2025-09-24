@@ -1,5 +1,4 @@
 pub mod eth;
-pub mod spy;
 mod wait_for;
 
 use std::collections::HashSet;

@@ -4,7 +4,7 @@ use expect_test::expect_file;
 use tempdir::TempDir;
 use test_strategy::proptest;
 
-use crate::{batch, Batch};
+use crate::{Batch, batch};
 
 use super::*;
 
@@ -105,7 +105,7 @@ fn insert_batch_works(batch_1: Batch<64, i32>, mut batch_2: Batch<64, i32>) {
 
 macro_rules! expect_storage_known_hashes {
     ($persistent:expr, hashes: $expected_hashes:expr) => {{
-        use crate::storage::load::{entries, RocksbEntry};
+        use crate::storage::load::{RocksbEntry, entries};
 
         let known_hashes_in_db = entries::<()>($persistent.db())
             .collect::<Result<Vec<_>, _>>()

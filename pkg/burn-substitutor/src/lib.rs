@@ -1,17 +1,18 @@
-use std::time::Duration;
-
-use contracts::{Address, RollupContract};
+use contracts::{Address, ConfirmationType, RollupContract, USDCContract};
 use element::Element;
+use eth_util::Eth;
 use eyre::{Context, ContextCompat};
 use primitives::{
     block_height::BlockHeight,
     pagination::{CursorChoice, CursorChoiceAfter, OpaqueCursor, OpaqueCursorChoice},
 };
 use reqwest::StatusCode;
+use std::time::Duration;
 use zk_primitives::{UtxoKindMessages, UtxoProof};
 
 pub struct BurnSubstitutor {
     rollup_contract: RollupContract,
+    usdc_contract: USDCContract,
     node_rpc_url: String,
     eth_txn_confirm_wait_interval: Duration,
     cursor: Option<OpaqueCursorChoice<ListTxnsPosition>>,
@@ -20,11 +21,13 @@ pub struct BurnSubstitutor {
 impl BurnSubstitutor {
     pub fn new(
         rollup_contract: RollupContract,
+        usdc_contract: USDCContract,
         node_rpc_url: String,
         eth_txn_confirm_wait_interval: Duration,
     ) -> Self {
         BurnSubstitutor {
             rollup_contract,
+            usdc_contract,
             node_rpc_url,
             eth_txn_confirm_wait_interval,
             cursor: None,
@@ -65,9 +68,35 @@ impl BurnSubstitutor {
 
                 if self
                     .rollup_contract
-                    .was_burn_substituted(&burn_address, &note_kind, &hash, &amount)
+                    .was_burn_substituted(
+                        &burn_address,
+                        &note_kind,
+                        &hash,
+                        &amount,
+                        txn.block_height.0,
+                    )
                     .await?
                 {
+                    continue;
+                }
+
+                // Calculate the burn value as an EVM U256
+                let burn_value = burn_msgs.value.to_eth_u256();
+
+                // Check USDC balance and optionally skip if burn exceeds available balance
+                let usdc_balance = self
+                    .usdc_contract
+                    .balance(self.rollup_contract.signer_address)
+                    .await
+                    .context("Failed to fetch USDC balance for burn substitution")?;
+
+                if burn_value > usdc_balance {
+                    tracing::info!(
+                        ?txn.proof.public_inputs,
+                        %burn_value,
+                        %usdc_balance,
+                        "Skipping burn: value exceeds substitutor balance"
+                    );
                     continue;
                 }
 
@@ -85,7 +114,11 @@ impl BurnSubstitutor {
 
                 self.rollup_contract
                     .client
-                    .wait_for_confirm(txn, self.eth_txn_confirm_wait_interval)
+                    .wait_for_confirm(
+                        txn,
+                        self.eth_txn_confirm_wait_interval,
+                        ConfirmationType::Latest,
+                    )
                     .await
                     .context("Failed to wait for burn substitution")?;
 

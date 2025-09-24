@@ -5,3 +5,9 @@ pub mod error;
 pub mod longpoll;
 pub mod middleware;
 pub mod tracing;
+
+#[cfg(test)]
+mod tests;
+
+// Re-export the HTTPErrorConversion macro
+pub use rpc_error_convert::HTTPErrorConversion;

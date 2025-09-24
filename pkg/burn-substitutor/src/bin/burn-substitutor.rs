@@ -1,5 +1,5 @@
 use clap::Parser;
-use contracts::{RollupContract, U256};
+use contracts::{ConfirmationType, RollupContract, U256};
 use eyre::ContextCompat;
 use rpc::tracing::{LogFormat, LogLevel};
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ pub struct Config {
     #[arg(
         long,
         env = "ROLLUP_CONTRACT_ADDRESS",
-        default_value = "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9"
+        default_value = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
     )]
     rollup_contract_address: String,
 
@@ -81,11 +81,20 @@ async fn main() -> Result<(), eyre::Error> {
     )?;
 
     let client = contracts::Client::new(&config.evm_rpc_url, config.minimum_gas_price_gwei);
-    let rollup_contract =
-        RollupContract::load(client.clone(), &config.rollup_contract_address, secret_key).await?;
-    let usdc_contract =
-        contracts::USDCContract::load(client.clone(), &config.usdc_contract_address, secret_key)
-            .await?;
+    let rollup_contract = RollupContract::load(
+        client.clone(),
+        137,
+        &config.rollup_contract_address,
+        secret_key,
+    )
+    .await?;
+    let usdc_contract = contracts::USDCContract::load(
+        client.clone(),
+        137,
+        &config.usdc_contract_address,
+        secret_key,
+    )
+    .await?;
 
     if usdc_contract
         .allowance(rollup_contract.signer_address, rollup_contract.address())
@@ -94,12 +103,17 @@ async fn main() -> Result<(), eyre::Error> {
     {
         let approve_txn = usdc_contract.approve_max(rollup_contract.address()).await?;
         client
-            .wait_for_confirm(approve_txn, Duration::from_secs(1))
+            .wait_for_confirm(
+                approve_txn,
+                Duration::from_secs(1),
+                ConfirmationType::Latest,
+            )
             .await?;
     }
 
     let mut substitutor = burn_substitutor::BurnSubstitutor::new(
         rollup_contract,
+        usdc_contract,
         config.node_rpc_url,
         Duration::from_secs(1),
     );

@@ -1,14 +1,14 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use block_store::{BlockListOrder, StoreList};
 use chrono::{NaiveDate, Utc};
 use parking_lot::RwLock;
 
-use crate::{node, NodeShared};
+use crate::{NodeShared, node};
 
 pub struct TxnStats {
     node: Arc<NodeShared>,

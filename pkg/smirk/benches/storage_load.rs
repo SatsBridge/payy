@@ -1,10 +1,10 @@
 use std::{hint::black_box, process::Command};
 
-use benchy::{benchmark, BenchmarkRun};
+use benchy::{BenchmarkRun, benchmark};
 use element::Element;
 use hash::hash_merge;
 use rand::thread_rng;
-use smirk::{storage::Persistent, Batch};
+use smirk::{Batch, storage::Persistent};
 use tempdir::TempDir;
 
 fn make_batch(n: usize) -> Batch<160, ()> {

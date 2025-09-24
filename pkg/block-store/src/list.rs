@@ -5,8 +5,8 @@ use rocksdb::DB;
 use wire_message::WireMessage;
 
 use crate::{
-    keys::{Key, KeyBlock, KeyNonEmptyBlock, ListableKey, StoreValue},
     Block, BlockListOrder, BlockStore, Error, Result,
+    keys::{Key, KeyBlock, KeyNonEmptyBlock, ListableKey, StoreValue},
 };
 
 pub trait StoreList {

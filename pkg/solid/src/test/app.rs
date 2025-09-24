@@ -1,8 +1,8 @@
 use crate::{
+    AppState,
     proposal::{ManifestContent, ProposalHash},
     traits::{App, Peer, PeerSigner},
     util::u256::U256,
-    AppState,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use rand::Rng;
@@ -76,7 +76,7 @@ impl UncheckedPeerId {
     }
 
     pub fn random() -> UncheckedPeerId {
-        let peer_id = rand::thread_rng().gen::<[u8; 32]>();
+        let peer_id = rand::thread_rng().r#gen::<[u8; 32]>();
         UncheckedPeerId(peer_id.to_vec())
     }
 }

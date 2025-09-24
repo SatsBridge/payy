@@ -1,8 +1,8 @@
 use crate::{hash::CryptoHash, peer::Address};
 use borsh::{BorshDeserialize, BorshSerialize};
 use secp256k1::{
-    ecdsa::{self, RecoveryId},
     Message, SECP256K1,
+    ecdsa::{self, RecoveryId},
 };
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};

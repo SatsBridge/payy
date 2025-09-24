@@ -1,4 +1,4 @@
-use crate::{backend::Backend, Result};
+use crate::{Result, backend::Backend};
 use element::Base;
 
 pub fn verify<B: Backend>(key: &[u8], proof: &[u8], oracle_hash_keccak: bool) -> Result<()> {

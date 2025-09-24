@@ -1,20 +1,20 @@
 use crate::{
+    Result,
     backend::DefaultBackend,
     circuits::get_bytecode_from_program,
     prove::prove,
     traits::{Prove, Verify},
     util::write_to_temp_file,
     verify::verify,
-    Result,
 };
 use element::Base;
 use lazy_static::lazy_static;
-use noirc_abi::{input_parser::InputValue, InputMap};
+use noirc_abi::{InputMap, input_parser::InputValue};
 use noirc_artifacts::program::ProgramArtifact;
 use noirc_driver::CompiledProgram;
 use std::path::PathBuf;
 use zk_primitives::{
-    bytes_to_elements, Points, PointsProof, PointsProofBytes, PointsPublicInput, ToBytes,
+    Points, PointsProof, PointsProofBytes, PointsPublicInput, ToBytes, bytes_to_elements,
 };
 
 use super::note::BNote;
@@ -30,7 +30,7 @@ lazy_static! {
 }
 
 const POINTS_PUBLIC_INPUTS_COUNT: usize = 13;
-const POINTS_PROOF_SIZE: usize = 507;
+const POINTS_PROOF_SIZE: usize = 508;
 
 impl Prove for Points {
     type Proof = PointsProof;
@@ -151,7 +151,7 @@ mod tests {
     use super::*;
     use crate::traits::{Prove, Verify};
     use element::Element;
-    use zk_primitives::{get_address_for_private_key, Note, Points};
+    use zk_primitives::{Note, Points, get_address_for_private_key};
 
     #[test]
     fn test_points_prove_and_verify() -> Result<()> {
@@ -161,9 +161,10 @@ mod tests {
 
         let mut notes = (1..11)
             .map(|i| Note {
+                kind: Element::new(2),
                 value: Element::new(i as u64),
                 address,
-                kind: Element::new(1),
+                contract: Element::new(1),
                 psi: Element::new(i as u64),
             })
             .collect::<Vec<_>>();

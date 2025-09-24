@@ -1,4 +1,4 @@
-use crate::{hash_cache::KnownHash, Tree};
+use crate::{Tree, hash_cache::KnownHash};
 
 use super::tree_repr::Node;
 

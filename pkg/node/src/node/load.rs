@@ -5,8 +5,8 @@ use element::Element;
 use tracing::info;
 
 use crate::{
-    block::Block, config::Config, constants::MERKLE_TREE_DEPTH, types::BlockHeight, BlockFormat,
-    Node, NodeShared, PersistentMerkleTree, Result,
+    BlockFormat, Node, NodeShared, PersistentMerkleTree, Result, block::Block, config::Config,
+    constants::MERKLE_TREE_DEPTH, types::BlockHeight,
 };
 
 pub(super) struct LoadedData {

@@ -4,9 +4,9 @@ use libp2p::PeerId;
 use tracing::{info, instrument};
 
 use crate::{
+    NodeShared, Result,
     network::{SnapshotChunk, SnapshotKind},
     types::{BlockHeight, SnapshotId},
-    NodeShared, Result,
 };
 
 use super::sync;

@@ -4,6 +4,8 @@ use ethnum::U256;
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::ops::{Add, Div, Mul, Neg, Sub};
+#[cfg(feature = "ts-rs")]
+use ts_rs::TS;
 
 /// A signed 256-bit integer that wraps an `Element` with a sign bit
 ///
@@ -11,6 +13,8 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 /// while the underlying `Element` remains unsigned.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "ts-rs", derive(TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct SignedElement {
     /// The absolute value stored as an Element
     pub value: Element,

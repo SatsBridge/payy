@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use std::marker::PhantomData;
 use std::sync::{
-    atomic::{AtomicBool, Ordering::Relaxed},
     Arc,
+    atomic::{AtomicBool, Ordering::Relaxed},
 };
 use std::time::Instant;
 use tokio::sync::Notify;

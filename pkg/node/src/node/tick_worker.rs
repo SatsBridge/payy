@@ -5,7 +5,7 @@ use doomslug::ApprovalContent;
 use primitives::tick_worker::TickWorkerTick;
 use tracing::{error, warn};
 
-use crate::{types::BlockHeight, Mode, NodeSharedArc};
+use crate::{Mode, NodeSharedArc, types::BlockHeight};
 
 #[async_trait]
 impl TickWorkerTick for NodeSharedArc {

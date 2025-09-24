@@ -1,4 +1,4 @@
-use crate::{hash_merge, Element};
+use crate::{Element, hash_merge};
 use core::iter::zip;
 
 /// Compute the root hash of a merkle tree
@@ -32,8 +32,7 @@ use core::iter::zip;
 /// Here:
 ///  - `A` is [`hash_merge(0, 1)`][crate::hash_merge]
 ///  - `B` is [`hash_merge(2, 3)`][crate::hash_merge]
-///  - `C` is [`hash_merge(hash_merge(0, 1), hash_merge(2, 3))`][crate::hash_merge] (i.e. the root
-///     hash of the tree)
+///  - `C` is [`hash_merge(hash_merge(0, 1), hash_merge(2, 3))`][crate::hash_merge] (i.e. the root hash of the tree)
 ///
 /// If you wanted to prove that `2` was in the tree with this function, you would do the
 /// following:

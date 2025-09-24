@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use element::{Element, Lsb};
 
-use crate::{tree, Collision, CollisionError};
+use crate::{Collision, CollisionError, tree};
 
 mod proptest;
 

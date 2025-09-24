@@ -1,4 +1,4 @@
-use crate::{backend::Backend, execute::execute_program_and_decode, Result};
+use crate::{Result, backend::Backend, execute::execute_program_and_decode};
 use noirc_abi::InputMap;
 use noirc_driver::CompiledProgram;
 

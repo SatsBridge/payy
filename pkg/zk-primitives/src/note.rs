@@ -6,15 +6,20 @@ use noirc_abi::input_parser::InputValue;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+#[cfg(feature = "ts-rs")]
+use ts_rs::TS;
 
 /// A note is used in zk circuits to represent some kind of token (e.g. USDC) on
 /// the Payy Network.
 ///
 /// This is used to create notes in the zk-rollup
+#[cfg_attr(feature = "ts-rs", derive(TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
     /// The kind of note
     pub kind: Element,
+    /// The contract of note
+    pub contract: Element,
     /// The address of the note
     pub address: Element,
     /// The psi adds additional entropy to the note, to ensure uniqueness
@@ -28,7 +33,8 @@ impl Note {
     #[must_use]
     pub fn new(address: Element, value: Element) -> Self {
         Self {
-            kind: bridged_polygon_usdc_note_kind(),
+            kind: Element::new(2),
+            contract: bridged_polygon_usdc_note_kind(),
             address,
             psi: Element::secure_random(thread_rng()),
             value,
@@ -39,7 +45,8 @@ impl Note {
     #[must_use]
     pub fn new_with_psi(address: Element, value: Element, psi: Element) -> Self {
         Self {
-            kind: bridged_polygon_usdc_note_kind(),
+            kind: Element::new(2),
+            contract: bridged_polygon_usdc_note_kind(),
             address,
             psi,
             value,
@@ -52,7 +59,8 @@ impl Note {
         let address = get_address_for_private_key(private_key);
         let psi = hash_private_key_for_psi(private_key);
         Self {
-            kind: bridged_polygon_usdc_note_kind(),
+            kind: Element::new(2),
+            contract: bridged_polygon_usdc_note_kind(),
             address,
             psi,
             value,
@@ -64,7 +72,8 @@ impl Note {
     #[must_use]
     pub fn padding_note() -> Self {
         Note {
-            kind: Element::ZERO,
+            kind: Element::new(2),
+            contract: Element::ZERO,
             address: Element::ZERO,
             psi: Element::ZERO,
             value: Element::ZERO,
@@ -74,7 +83,7 @@ impl Note {
     /// Check if the note is a padding note
     #[must_use]
     pub fn is_padding_note(&self) -> bool {
-        self.kind == Element::ZERO && self.value == Element::ZERO
+        self.contract == Element::ZERO && self.value == Element::ZERO
     }
 
     /// Commitment of the note, this is stored in the merkle tree and proves the note exists
@@ -84,7 +93,15 @@ impl Note {
         if self.value == Element::ZERO {
             Element::ZERO
         } else {
-            hash::hash_merge([self.kind, self.value, self.address, self.psi])
+            hash::hash_merge([
+                self.kind,
+                self.contract,
+                self.value,
+                self.address,
+                self.psi,
+                Element::ZERO,
+                Element::ZERO,
+            ])
         }
     }
 }
@@ -103,7 +120,10 @@ impl From<&Note> for InputValue {
             "address".to_owned(),
             InputValue::Field(note.address.to_base()),
         );
-        struct_.insert("kind".to_owned(), InputValue::Field(note.kind.to_base()));
+        struct_.insert(
+            "kind".to_owned(),
+            InputValue::Field(note.contract.to_base()),
+        );
         struct_.insert("psi".to_owned(), InputValue::Field(note.psi.to_base()));
         struct_.insert("value".to_owned(), InputValue::Field(note.value.to_base()));
 

@@ -1,10 +1,10 @@
-use acvm::acir::native_types::WitnessStack;
 use acvm::FieldElement;
+use acvm::acir::native_types::WitnessStack;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use nargo::errors::try_to_diagnose_runtime_error;
 use nargo::foreign_calls::DefaultForeignCallBuilder;
-use noirc_abi::input_parser::InputValue;
 use noirc_abi::InputMap;
+use noirc_abi::input_parser::InputValue;
 use noirc_artifacts::debug::DebugArtifact;
 use noirc_driver::CompiledProgram;
 

@@ -1,3 +1,4 @@
+mod elements;
 mod empty;
 mod merkle;
 mod smirk;
@@ -9,22 +10,24 @@ use barretenberg::Prove;
 use element::Element;
 pub use types::*;
 
+use crate::rpc::types::ElementsListItem;
+
 use std::{
     env::VarError,
     io::Read,
     path::PathBuf,
     process::Command,
     str::FromStr,
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
 };
 
-use contracts::{util::convert_h160_to_element, Address, RollupContract, SecretKey, USDCContract};
+use contracts::{Address, RollupContract, SecretKey, USDCContract, util::convert_h160_to_element};
 use futures::Future;
 use once_cell::sync::Lazy;
 use primitives::hash::CryptoHash;
 use reqwest::Url;
 use serde_json::json;
-use testutil::{eth::EthNode, PortPool};
+use testutil::{PortPool, eth::EthNode};
 use tokio::runtime::RuntimeFlavor;
 use zk_primitives::{InputNote, Note, UtxoProof};
 
@@ -60,7 +63,7 @@ impl ServerConfig {
             keep_port_after_drop,
             safe_eth_height_offset: 0,
             rollup_contract: Address::from_slice(
-                &hex::decode("dc64a140aa3e981100a9beca4e685f962f0cf6c9").unwrap(),
+                &hex::decode("cf7ed3acca5a467e9e704c703e8d87f634fb0fc9").unwrap(),
             ),
             secret_key: hex::decode(
                 "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
@@ -366,7 +369,7 @@ impl Server {
             match self.client.execute(req).await {
                 Ok(res) if res.status().is_success() => return Ok(()),
                 Ok(res) if is_last_retry => {
-                    return Err(format!("Failed to get health: {}", res.status()).into())
+                    return Err(format!("Failed to get health: {}", res.status()).into());
                 }
                 Ok(_) => {}
                 Err(err) if is_last_retry => return Err(err.into()),
@@ -468,6 +471,41 @@ impl Server {
         }
 
         Ok(res.json::<ElementResponse>().await.unwrap())
+    }
+
+    pub async fn list_elements(
+        &self,
+        elements: &[Element],
+        include_spent: bool,
+    ) -> Result<Vec<ElementsListItem>, Error> {
+        let res = self
+            .client
+            .get(self.base_url().join("/v0/elements").unwrap())
+            .query(&[
+                (
+                    "elements",
+                    elements
+                        .iter()
+                        .map(|e| e.to_hex())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                ),
+                if include_spent {
+                    ("include_spent", include_spent.to_string())
+                } else {
+                    ("", "".to_string())
+                },
+            ])
+            .send()
+            .await
+            .unwrap();
+
+        if !res.status().is_success() {
+            let err = res.json::<Error>().await.unwrap();
+            return Err(err);
+        }
+
+        Ok(res.json().await.unwrap())
     }
 
     pub async fn list_blocks(&self, query: &ListBlocksQuery) -> Result<ListBlocksResponse, Error> {
@@ -581,7 +619,7 @@ fn mint_with_note<'m, 't>(
     (
         async move {
             let tx = rollup
-                .mint(&utxo.mint_hash(), &note.value, &note.kind)
+                .mint(&utxo.mint_hash(), &note.value, &note.contract)
                 .await?;
 
             while rollup
@@ -591,7 +629,7 @@ fn mint_with_note<'m, 't>(
                 .transaction_receipt(tx)
                 .await
                 .unwrap()
-                .map_or(true, |r| r.block_number.is_none())
+                .is_none_or(|r| r.block_number.is_none())
             {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
@@ -646,6 +684,7 @@ async fn rollup_contract(addr: Address, eth_node: &EthNode) -> RollupContract {
     let client = contracts::Client::new(&eth_node.rpc_url(), None);
     RollupContract::load(
         client,
+        1337,
         &hex::encode(addr.as_bytes()),
         SecretKey::from_str("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
             .unwrap(),
@@ -660,6 +699,7 @@ async fn usdc_contract(rollup: &RollupContract, eth_node: &EthNode) -> USDCContr
     let client = contracts::Client::new(&eth_node.rpc_url(), None);
     USDCContract::load(
         client,
+        1337,
         &hex::encode(usdc_addr.as_bytes()),
         SecretKey::from_str("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
             .unwrap(),
