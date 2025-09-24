@@ -29,6 +29,8 @@ doomslug = { path = "./pkg/doomslug" }
 element = { path = "./pkg/element" }
 eth-util = { path = "./pkg/eth-util" }
 hash = { path = "./pkg/hash" }
+hash-poseidon = { path = "./pkg/hash-poseidon" }
+minimal-poseidon = { path = "./pkg/minimal-poseidon" }
 node = { path = "./pkg/node" }
 node-interface = { path = "./pkg/node-interface" }
 p2p2 = { path = "./pkg/p2p2" }
@@ -44,6 +46,7 @@ zk-circuits = { path = "./pkg/zk-circuits" }
 zk-primitives = { path = "./pkg/zk-primitives" }
 testutil = { path = "./pkg/testutil" }
 
+ts-rs = { version = "^11.0.1", features = ["format", "chrono-impl", "uuid-impl"] }
 actix-cors = "0.6.4"
 actix-server = "2.3.0"
 actix-web = "4.4.0"

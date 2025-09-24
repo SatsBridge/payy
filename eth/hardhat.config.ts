@@ -1,6 +1,7 @@
 import { type HardhatUserConfig } from 'hardhat/config'
 import '@nomicfoundation/hardhat-toolbox-viem'
 import '@nomicfoundation/hardhat-ethers'
+import '@nomicfoundation/hardhat-chai-matchers'
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -16,6 +17,7 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       chainId: 1337,
+      hardfork: 'prague',
       throwOnTransactionFailures: true,
       throwOnCallFailures: true,
       loggingEnabled: true
@@ -37,7 +39,11 @@ const NETWORKS = {
   polygon: { chainId: 137 },
   amoy: { chainId: 80002 },
   kovan: { chainId: 42 },
-  sepolia: { chainId: 1337 }
+  sepolia: { chainId: 1337 },
+  base: { chainId: 8453 },
+  bnb: { chainId: 56 },
+  arbitrum: { chainId: 42161 },
+  optimism: { chainId: 10 }
 } as any
 
 Object.keys(NETWORKS).forEach((network) => {
