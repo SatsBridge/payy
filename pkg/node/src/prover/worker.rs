@@ -16,7 +16,6 @@ use element::Element;
 use futures::StreamExt;
 use prover::{MAXIMUM_TXNS, RollupInput};
 use prover::{Prover, Transaction};
-use prover::{RollupInput, MAXIMUM_TXNS};
 use scopeguard::ScopeGuard;
 use smirk::empty_tree_hash;
 use tokio::sync::{Mutex, Notify, mpsc};

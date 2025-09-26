@@ -267,7 +267,7 @@ impl RollupContract {
         signer: SecretKey,
     ) -> Result<Self> {
         let contract_json =
-            include_str!("../../../eth/artifacts/contracts/rollup2/RollupV1.sol/RollupV1.json");
+            include_str!("/home/i/Code/Rust/zerosats/payy/citrea/artifacts/contracts/rollup2/RollupV1.sol/RollupV1.json");
         let contract = client.load_contract_from_str(rollup_contract_addr, contract_json)?;
 
         let domain_separator = calculate_domain_separator(
